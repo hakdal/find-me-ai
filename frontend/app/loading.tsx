@@ -12,11 +12,15 @@ import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../constants/Colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { useTranslation } from 'react-i18next';
+import { analyticsService } from '../services/analytics';
+import i18n from '../i18n/i18n.config';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
 export default function LoadingScreen() {
-  const [loadingText, setLoadingText] = useState('Personan hazırlanıyor...');
+  const { t } = useTranslation();
+  const [loadingText, setLoadingText] = useState(t('loading.analyzing'));
   const pulseAnim = new Animated.Value(1);
   const spinAnim = new Animated.Value(0);
   const router = useRouter();
