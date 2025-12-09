@@ -9,6 +9,8 @@ import {
   Share,
   Dimensions,
   ActivityIndicator,
+  Alert,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -16,6 +18,10 @@ import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { useTranslation } from 'react-i18next';
+import { analyticsService } from '../../services/analytics';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 
 const { width } = Dimensions.get('window');
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -32,13 +38,16 @@ interface PersonaData {
 }
 
 export default function ResultsScreen() {
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams();
   const [persona, setPersona] = useState<PersonaData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [generatingCard, setGeneratingCard] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     fetchPersona();
+    analyticsService.logScreenView('results');
   }, [id]);
 
   const fetchPersona = async () => {
@@ -59,8 +68,57 @@ export default function ResultsScreen() {
       await Share.share({
         message: `🔮 ${persona.persona_name}\n\n${persona.share_quote}\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
       });
+      
+      analyticsService.logShareAction(persona.id, 'native');
     } catch (error) {
       console.error('Error sharing:', error);
+    }
+  };
+
+  const generateAndShareCard = async () => {
+    if (!persona) return;
+
+    try {
+      setGeneratingCard(true);
+      
+      // Generate share card from backend
+      const response = await axios.post(`${BACKEND_URL}/api/generate-share-card`, {
+        persona_id: persona.id,
+      });
+
+      if (response.data && response.data.share_card_base64) {
+        // Save to device
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        
+        if (status === 'granted') {
+          // Save base64 image to file
+          const fileUri = FileSystem.documentDirectory + `share_card_${persona.id}.png`;
+          await FileSystem.writeAsStringAsync(
+            fileUri,
+            response.data.share_card_base64,
+            { encoding: FileSystem.EncodingType.Base64 }
+          );
+
+          // Save to gallery
+          const asset = await MediaLibrary.createAssetAsync(fileUri);
+          await MediaLibrary.createAlbumAsync('Find Me AI', asset, false);
+
+          Alert.alert(
+            'Success! 🎉',
+            'Share card saved to your gallery. You can now share it on Instagram or TikTok!',
+            [{ text: 'OK' }]
+          );
+
+          analyticsService.logShareAction(persona.id, 'card_download');
+        } else {
+          Alert.alert('Permission Required', 'Please grant permission to save images');
+        }
+      }
+    } catch (error) {
+      console.error('Error generating share card:', error);
+      Alert.alert('Error', 'Failed to generate share card. Please try again.');
+    } finally {
+      setGeneratingCard(false);
     }
   };
 
@@ -73,7 +131,7 @@ export default function ResultsScreen() {
       <View style={styles.loadingContainer}>
         <StatusBar style="light" />
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Yükleniyor...</Text>
+        <Text style={styles.loadingText}>{t('results.loading')}</Text>
       </View>
     );
   }
@@ -82,9 +140,9 @@ export default function ResultsScreen() {
     return (
       <View style={styles.errorContainer}>
         <StatusBar style="light" />
-        <Text style={styles.errorText}>Persona bulunamadı</Text>
+        <Text style={styles.errorText}>{t('results.notFound')}</Text>
         <TouchableOpacity style={styles.homeButton} onPress={createAnother}>
-          <Text style={styles.homeButtonText}>Ana Sayfaya Dön</Text>
+          <Text style={styles.homeButtonText}>{t('results.backHome')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -128,13 +186,13 @@ export default function ResultsScreen() {
 
         {/* Bio */}
         <View style={styles.bioContainer}>
-          <Text style={styles.bioLabel}>Kişilik Analizi</Text>
+          <Text style={styles.bioLabel}>{t('results.analysis')}</Text>
           <Text style={styles.bioText}>{persona.bio_paragraph}</Text>
         </View>
 
         {/* Traits */}
         <View style={styles.traitsContainer}>
-          <Text style={styles.traitsLabel}>Senin Özelliklerin</Text>
+          <Text style={styles.traitsLabel}>{t('results.traits')}</Text>
           {persona.traits.map((trait, index) => (
             <View key={index} style={styles.traitItem}>
               <LinearGradient
@@ -164,6 +222,31 @@ export default function ResultsScreen() {
 
         {/* Actions */}
         <View style={styles.actions}>
+          {/* Share Card Button */}
+          <TouchableOpacity
+            style={styles.shareCardButton}
+            onPress={generateAndShareCard}
+            disabled={generatingCard}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={[Colors.secondary, '#00AAAA']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.shareCardGradient}
+            >
+              {generatingCard ? (
+                <ActivityIndicator size="small" color={Colors.text} />
+              ) : (
+                <>
+                  <Ionicons name="download" size={24} color={Colors.text} />
+                  <Text style={styles.shareCardText}>Download Share Card</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Share Button */}
           <TouchableOpacity
             style={styles.shareButtonLarge}
             onPress={handleShare}
@@ -176,17 +259,18 @@ export default function ResultsScreen() {
               style={styles.shareGradient}
             >
               <Ionicons name="share-social" size={24} color={Colors.text} />
-              <Text style={styles.shareButtonText}>Paylaş</Text>
+              <Text style={styles.shareButtonText}>{t('results.share')}</Text>
             </LinearGradient>
           </TouchableOpacity>
 
+          {/* Create Another Button */}
           <TouchableOpacity
             style={styles.createAnotherButton}
             onPress={createAnother}
             activeOpacity={0.8}
           >
             <Ionicons name="add-circle" size={24} color={Colors.text} />
-            <Text style={styles.createAnotherText}>Yeni Persona Oluştur</Text>
+            <Text style={styles.createAnotherText}>{t('results.createAnother')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -326,6 +410,28 @@ const styles = StyleSheet.create({
   actions: {
     paddingHorizontal: 24,
     gap: 16,
+  },
+  shareCardButton: {
+    borderRadius: 30,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: Colors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  shareCardGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 32,
+  },
+  shareCardText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text,
+    marginLeft: 12,
   },
   shareButtonLarge: {
     borderRadius: 30,
