@@ -150,7 +150,7 @@ export default function LoadingScreen() {
 
           <Text style={styles.loadingText}>{loadingText}</Text>
           <Text style={styles.subText}>
-            Bu birkaç saniye sürebilir
+            {t('loading.wait')}
           </Text>
         </View>
       </LinearGradient>
