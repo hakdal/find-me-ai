@@ -64,7 +64,7 @@ export default function LoadingScreen() {
 
   const generatePersona = async () => {
     try {
-      setLoadingText('Selfien analiz ediliyor...');
+      setLoadingText(t('loading.analyzing'));
       
       // Get stored data
       const selfie = await AsyncStorage.getItem('selfie');
@@ -78,25 +78,30 @@ export default function LoadingScreen() {
       }
 
       const quizAnswers = JSON.parse(quizAnswersStr);
+      const language = i18n.language;
 
-      setLoadingText('AI senin için çalışıyor...');
+      setLoadingText(t('loading.generating'));
 
-      // Call API
+      // Call API with language
       const response = await axios.post(
         `${BACKEND_URL}/api/generate-persona`,
         {
           selfie_base64: selfie,
           quiz_answers: quizAnswers,
           persona_theme: selectedPersona,
+          language: language,
         },
         {
           timeout: 120000, // 2 minute timeout
         }
       );
 
-      setLoadingText('Avatar oluşturuluyor...');
+      setLoadingText(t('loading.avatar'));
 
       if (response.data && response.data.id) {
+        // Log analytics
+        analyticsService.logPersonaGenerated(response.data.id, selectedPersona);
+        
         // Success! Navigate to results
         setTimeout(() => {
           router.replace(`/results/${response.data.id}`);
@@ -106,7 +111,7 @@ export default function LoadingScreen() {
       }
     } catch (error: any) {
       console.error('Error generating persona:', error);
-      setLoadingText('Bir hata oluştu, tekrar denenecek...');
+      setLoadingText(t('loading.error'));
       
       // Retry after 2 seconds
       setTimeout(() => {
