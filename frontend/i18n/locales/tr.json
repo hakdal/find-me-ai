@@ -1,0 +1,99 @@
+{
+  "home": {
+    "logo": "FIND ME AI",
+    "subtitle": "Gerçek Kişiliğini Keşfet",
+    "description": "Selfie + 5 Soru = Senin Alter Ego Personan",
+    "descriptionSmall": "AI tabanlı kişilik analizi ve avatar oluşturma",
+    "feature1": "Selfie Çek",
+    "feature2": "5 Soru Cevapla",
+    "feature3": "AI Personan",
+    "feature4": "Paylaş",
+    "cta": "Başlat"
+  },
+  "camera": {
+    "title": "Selfie Çek",
+    "guide": "Yüzünü çerçeveye hizala",
+    "ready": "Hazır mısın?",
+    "readySubtitle": "Şimdi kişilik sorularına geçelim",
+    "retake": "Tekrar Çek",
+    "continue": "Devam Et",
+    "permission": "Kamera erişimi gerekli",
+    "grantPermission": "İzin Ver",
+    "gallery": "Galeriden Seç"
+  },
+  "quiz": {
+    "question": "Soru",
+    "selectPersona": "Persona Seç",
+    "selectPersonaSubtitle": "Hangi alter ego kişiliğini keşfetmek istersin?",
+    "generate": "Personamı Oluştur",
+    "questions": {
+      "q1": "Bir krizde nasıl davranırsın?",
+      "q1_a1": "Sakin kalır ve çözüm ararım",
+      "q1_a2": "Liderlik yapar ve yönlendiririm",
+      "q1_a3": "Duygusal destek veririm",
+      "q1_a4": "Yaratıcı çözümler üretirim",
+      "q2": "İdeal Cumartesi gecen nasıl geçer?",
+      "q2_a1": "Arkadaşlarla dışarıda, sosyal",
+      "q2_a2": "Evde, sakin ve rahat",
+      "q2_a3": "Yeni şeyler keşfederek",
+      "q2_a4": "Hedeflerime çalışarak",
+      "q3": "Seni en çok ne motive eder?",
+      "q3_a1": "Başarı ve tanınma",
+      "q3_a2": "İnsanlara yardım etmek",
+      "q3_a3": "Özgürlük ve bağımsızlık",
+      "q3_a4": "Yenilik ve değişim",
+      "q4": "Risk almak hakkında ne düşünürsün?",
+      "q4_a1": "Hesaplı riskler alırım",
+      "q4_a2": "Büyük riskler büyük ödüller",
+      "q4_a3": "Güvenli oynarım",
+      "q4_a4": "Sezgilerime güvenirim",
+      "q5": "Hayat felsefeni en iyi tanımlayan nedir?",
+      "q5_a1": "Cesaret ve kararlılık",
+      "q5_a2": "Sevgi ve empati",
+      "q5_a3": "Özgünlük ve yaratıcılık",
+      "q5_a4": "Güç ve kontrol"
+    }
+  },
+  "loading": {
+    "analyzing": "Selfien analiz ediliyor...",
+    "generating": "AI senin için çalışıyor...",
+    "avatar": "Avatar oluşturuluyor...",
+    "wait": "Bu birkaç saniye sürebilir",
+    "error": "Bir hata oluştu, tekrar denenecek..."
+  },
+  "results": {
+    "analysis": "Kişilik Analizi",
+    "traits": "Senin Özelliklerin",
+    "share": "Paylaş",
+    "createAnother": "Yeni Persona Oluştur",
+    "loading": "Yükleniyor...",
+    "notFound": "Persona bulunamadı",
+    "backHome": "Ana Sayfaya Dön"
+  },
+  "personas": {
+    "midnightCeo": {
+      "name": "Midnight CEO",
+      "description": "Güçlü, kararlı ve lider ruh"
+    },
+    "darkCharmer": {
+      "name": "Dark Charmer",
+      "description": "Gizemli, çekici ve büyüleyici"
+    },
+    "alphaStrategist": {
+      "name": "Alpha Strategist",
+      "description": "Stratejik, zeki ve vizyoner"
+    },
+    "glamDiva": {
+      "name": "Glam Diva",
+      "description": "Göz kamaştırıcı, şık ve etkileyici"
+    }
+  },
+  "common": {
+    "loading": "Yükleniyor...",
+    "error": "Hata",
+    "success": "Başarılı",
+    "cancel": "İptal",
+    "confirm": "Onayla",
+    "close": "Kapat"
+  }
+}

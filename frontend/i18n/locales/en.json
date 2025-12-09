@@ -1,0 +1,99 @@
+{
+  "home": {
+    "logo": "FIND ME AI",
+    "subtitle": "Discover Your True Personality",
+    "description": "Selfie + 5 Questions = Your Alter Ego Persona",
+    "descriptionSmall": "AI-powered personality analysis and avatar generation",
+    "feature1": "Take Selfie",
+    "feature2": "Answer 5 Questions",
+    "feature3": "Get AI Persona",
+    "feature4": "Share",
+    "cta": "Start"
+  },
+  "camera": {
+    "title": "Take Selfie",
+    "guide": "Align your face with the frame",
+    "ready": "Ready?",
+    "readySubtitle": "Now let's proceed to personality questions",
+    "retake": "Retake",
+    "continue": "Continue",
+    "permission": "Camera access required",
+    "grantPermission": "Grant Permission",
+    "gallery": "Choose from Gallery"
+  },
+  "quiz": {
+    "question": "Question",
+    "selectPersona": "Select Persona",
+    "selectPersonaSubtitle": "Which alter ego personality do you want to discover?",
+    "generate": "Generate My Persona",
+    "questions": {
+      "q1": "How do you act in a crisis?",
+      "q1_a1": "Stay calm and find solutions",
+      "q1_a2": "Take leadership and direct",
+      "q1_a3": "Provide emotional support",
+      "q1_a4": "Generate creative solutions",
+      "q2": "How does your ideal Saturday night go?",
+      "q2_a1": "Out with friends, social",
+      "q2_a2": "At home, calm and comfortable",
+      "q2_a3": "Discovering new things",
+      "q2_a4": "Working on my goals",
+      "q3": "What motivates you most?",
+      "q3_a1": "Success and recognition",
+      "q3_a2": "Helping people",
+      "q3_a3": "Freedom and independence",
+      "q3_a4": "Innovation and change",
+      "q4": "What do you think about taking risks?",
+      "q4_a1": "I take calculated risks",
+      "q4_a2": "Big risks, big rewards",
+      "q4_a3": "I play it safe",
+      "q4_a4": "I trust my instincts",
+      "q5": "What best describes your life philosophy?",
+      "q5_a1": "Courage and determination",
+      "q5_a2": "Love and empathy",
+      "q5_a3": "Authenticity and creativity",
+      "q5_a4": "Power and control"
+    }
+  },
+  "loading": {
+    "analyzing": "Analyzing your selfie...",
+    "generating": "AI is working for you...",
+    "avatar": "Creating avatar...",
+    "wait": "This may take a few seconds",
+    "error": "An error occurred, retrying..."
+  },
+  "results": {
+    "analysis": "Personality Analysis",
+    "traits": "Your Traits",
+    "share": "Share",
+    "createAnother": "Create New Persona",
+    "loading": "Loading...",
+    "notFound": "Persona not found",
+    "backHome": "Back to Home"
+  },
+  "personas": {
+    "midnightCeo": {
+      "name": "Midnight CEO",
+      "description": "Powerful, determined and leader spirit"
+    },
+    "darkCharmer": {
+      "name": "Dark Charmer",
+      "description": "Mysterious, attractive and captivating"
+    },
+    "alphaStrategist": {
+      "name": "Alpha Strategist",
+      "description": "Strategic, intelligent and visionary"
+    },
+    "glamDiva": {
+      "name": "Glam Diva",
+      "description": "Dazzling, stylish and impressive"
+    }
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close"
+  }
+}
