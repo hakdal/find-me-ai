@@ -710,7 +710,7 @@ Keep the SAME persona theme but change:
 - Traits (adjust to match {style} vibe)
 - Quote (new quote with {style} energy)
 
-Output format (in {original['language']}):
+Output format (in {original.get('language', 'tr')}):
 PERSONA NAME: [New stylish name]
 BIO: [2-3 sentences with {style} tone]
 TRAITS:
