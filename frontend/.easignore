@@ -1,0 +1,11 @@
+# EAS Ignore
+node_modules
+.expo
+.expo-shared
+dist
+*.log
+.git
+.vscode
+.DS_Store
+test_result.md
+*.bak
