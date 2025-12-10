@@ -7,15 +7,25 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { iapService, PRODUCT_IDS, SUBSCRIPTION_IDS } from '../services/iap';
 import { analyticsService } from '../services/analytics';
 import { useTranslation } from 'react-i18next';
+
+// Product IDs
+const PRODUCT_IDS = {
+  PERSONA_SINGLE: 'persona_single',
+  PERSONA_ALL: 'persona_all',
+};
+
+const SUBSCRIPTION_IDS = {
+  PERSONA_UNLIMITED: 'persona_unlimited',
+};
 
 export default function PaywallScreen() {
   const { t } = useTranslation();
