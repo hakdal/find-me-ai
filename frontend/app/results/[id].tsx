@@ -219,6 +219,55 @@ export default function ResultsScreen() {
 
         {/* Actions */}
         <View style={styles.actions}>
+          {/* Story Pack Button - Phase 3 */}
+          <TouchableOpacity
+            style={styles.storyPackButton}
+            onPress={generateStoryPack}
+            disabled={generatingStoryPack}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#9933FF', '#CC00FF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.shareGradient}
+            >
+              {generatingStoryPack ? (
+                <ActivityIndicator size="small" color={Colors.text} />
+              ) : (
+                <>
+                  <Ionicons name="images" size={24} color={Colors.text} />
+                  <Text style={styles.shareButtonText}>📱 Generate Story Pack (3 slides)</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Remix Button - Phase 3 */}
+          <TouchableOpacity
+            style={styles.remixButton}
+            onPress={handleRemix}
+            disabled={remixing}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={[Colors.secondary, '#00AAAA']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.shareGradient}
+            >
+              {remixing ? (
+                <ActivityIndicator size="small" color={Colors.text} />
+              ) : (
+                <>
+                  <Ionicons name="shuffle" size={24} color={Colors.text} />
+                  <Text style={styles.shareButtonText}>✨ Remix (Get Variations)</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Original Share Button */}
           <TouchableOpacity
             style={styles.shareButtonLarge}
             onPress={handleShare}
