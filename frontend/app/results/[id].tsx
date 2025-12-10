@@ -55,6 +55,10 @@ export default function ResultsScreen() {
     }
   };
 
+  const [generatingStoryPack, setGeneratingStoryPack] = useState(false);
+  const [remixing, setRemixing] = useState(false);
+  const [showRemixMenu, setShowRemixMenu] = useState(false);
+
   const handleShare = async () => {
     if (!persona) return;
 
@@ -64,6 +68,54 @@ export default function ResultsScreen() {
       });
     } catch (error) {
       console.error('Error sharing:', error);
+    }
+  };
+
+  const generateStoryPack = async () => {
+    if (!persona) return;
+
+    try {
+      setGeneratingStoryPack(true);
+      
+      const response = await axios.post(`${BACKEND_URL}/api/generate-story-pack`, {
+        persona_id: persona.id,
+        template: 'default',
+      });
+
+      if (response.data) {
+        // For now, just show success message
+        // In native build, we'll save to gallery
+        alert('✅ Story Pack Generated! 3 slides ready.\n\n(Saving to gallery available in native app)');
+      }
+    } catch (error) {
+      console.error('Error generating story pack:', error);
+      alert('Error generating story pack. Please try again.');
+    } finally {
+      setGeneratingStoryPack(false);
+    }
+  };
+
+  const handleRemix = async () => {
+    if (!persona) return;
+
+    try {
+      setRemixing(true);
+      
+      const response = await axios.post(`${BACKEND_URL}/api/remix-persona`, {
+        original_persona_id: persona.id,
+        variation_count: 3,
+      });
+
+      if (response.data && response.data.variations) {
+        setRemixing(false);
+        setShowRemixMenu(true);
+        // Show variations in a modal or navigate to variation selector
+        alert(`✨ ${response.data.variations.length} Remixes Created!\n\nExplore different vibes of your persona.`);
+      }
+    } catch (error) {
+      console.error('Error remixing persona:', error);
+      alert('Error creating remixes. Please try again.');
+      setRemixing(false);
     }
   };
 
