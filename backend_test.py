@@ -332,27 +332,60 @@ class APITester:
             return False
     
     def run_all_tests(self):
-        """Run all API tests in sequence"""
-        print("🚀 Starting FIND ME AI Backend API Tests")
+        """Run all API tests in sequence including Phase 3 viral features"""
+        print("🚀 Starting FIND ME AI Phase 3 Backend API Tests")
         print(f"🔗 Testing against: {self.base_url}")
-        print("=" * 60)
+        print("=" * 70)
         
         # Test 1: Health Check
         health_ok = self.test_health_check()
+        if not health_ok:
+            print("❌ Health check failed - stopping tests")
+            return False
         
-        # Test 2: Generate Persona (with long timeout)
-        persona_id = self.test_generate_persona()
+        # Get existing personas for Phase 3 testing
+        existing_personas = self.get_existing_personas()
+        test_persona_id = None
         
-        # Test 3: List Personas
+        if existing_personas:
+            # Use existing persona for Phase 3 tests
+            test_persona_id = existing_personas[0]['id']
+            print(f"🎯 Using existing persona for Phase 3 tests: {test_persona_id}")
+            print(f"   Persona: {existing_personas[0].get('persona_name', 'Unknown')}")
+        else:
+            # Generate new persona if none exist
+            print("🔄 No existing personas found, generating new one...")
+            test_persona_id = self.test_generate_persona()
+        
+        # Test 2: List Personas
         list_ok = self.test_list_personas()
         
-        # Test 4: Get Persona by ID (if we have an ID from generation)
-        get_by_id_ok = self.test_get_persona_by_id(persona_id) if persona_id else False
+        # Test 3: Get Persona by ID (if we have an ID)
+        get_by_id_ok = self.test_get_persona_by_id(test_persona_id) if test_persona_id else False
+        
+        # PHASE 3 VIRAL FEATURES TESTING
+        print("\n" + "=" * 70)
+        print("🎉 PHASE 3 VIRAL FEATURES TESTING")
+        print("=" * 70)
+        
+        # Test 4: Story Pack Generation (Phase 3)
+        story_pack_ok = False
+        if test_persona_id:
+            story_pack_ok = self.test_story_pack_generation(test_persona_id)
+        else:
+            self.log_test("Story Pack Generation", False, "No persona ID available for testing")
+        
+        # Test 5: Remix Persona (Phase 3)
+        remix_ok = False
+        if test_persona_id:
+            remix_ok = self.test_remix_persona(test_persona_id)
+        else:
+            self.log_test("Remix Persona", False, "No persona ID available for testing")
         
         # Summary
-        print("=" * 60)
-        print("📊 TEST SUMMARY")
-        print("=" * 60)
+        print("\n" + "=" * 70)
+        print("📊 COMPREHENSIVE TEST SUMMARY")
+        print("=" * 70)
         
         total_tests = len(self.test_results)
         passed_tests = sum(1 for result in self.test_results if result["success"])
@@ -362,10 +395,27 @@ class APITester:
         print(f"Failed: {total_tests - passed_tests}")
         print(f"Success Rate: {(passed_tests/total_tests)*100:.1f}%")
         
-        print("\nDetailed Results:")
+        # Categorize results
+        core_tests = ["Health Check", "Generate Persona", "List Personas", "Get Persona by ID"]
+        phase3_tests = ["Story Pack Generation", "Remix Persona"]
+        
+        print(f"\n📋 Core API Tests:")
         for result in self.test_results:
-            status = "✅" if result["success"] else "❌"
-            print(f"{status} {result['test']}: {result['details']}")
+            if result['test'] in core_tests:
+                status = "✅" if result["success"] else "❌"
+                print(f"  {status} {result['test']}: {result['details']}")
+        
+        print(f"\n🎉 Phase 3 Viral Features:")
+        for result in self.test_results:
+            if result['test'] in phase3_tests:
+                status = "✅" if result["success"] else "❌"
+                print(f"  {status} {result['test']}: {result['details']}")
+        
+        # Check Phase 3 specific success
+        phase3_results = [r for r in self.test_results if r['test'] in phase3_tests]
+        phase3_passed = sum(1 for r in phase3_results if r['success'])
+        
+        print(f"\n🎯 Phase 3 Features Status: {phase3_passed}/{len(phase3_results)} passed")
         
         return passed_tests == total_tests
 
