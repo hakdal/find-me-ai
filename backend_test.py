@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Backend API Testing for FIND ME AI
-Tests all backend endpoints with proper timeouts and error handling
+Backend API Testing for FIND ME AI Phase 3 - Viral Features
+Tests all backend endpoints including new Story Pack and Remix features
 """
 
 import requests
@@ -10,8 +10,19 @@ import time
 import sys
 from typing import Dict, Any, Optional
 
-# Backend URL from frontend environment
-BACKEND_URL = "https://selfie-persona.preview.emergentagent.com"
+# Get backend URL from frontend .env
+def get_backend_url():
+    try:
+        with open('/app/frontend/.env', 'r') as f:
+            for line in f:
+                if line.startswith('EXPO_PUBLIC_BACKEND_URL'):
+                    url = line.split('=')[1].strip().strip('"')
+                    return url
+    except:
+        pass
+    return "https://selfie-persona.preview.emergentagent.com"
+
+BACKEND_URL = get_backend_url()
 
 class APITester:
     def __init__(self, base_url: str):
