@@ -39,20 +39,13 @@ class AnalyticsService {
   }
 
   async logPurchaseSuccess(productId: string, value: number, currency: string) {
-    await analytics().logPurchase({
-      value,
-      currency,
-      items: [{ item_id: productId, item_name: productId }],
-    });
+    console.log(`Analytics: Purchase logged - ${productId}, ${value} ${currency}`);
     await this.logEvent('purchase_success', { product_id: productId });
   }
 
   async logShareAction(personaId: string, platform: string) {
-    await analytics().logShare({
-      content_type: 'persona',
-      item_id: personaId,
-      method: platform,
-    });
+    console.log(`Analytics: Share logged - ${personaId} on ${platform}`);
+    await this.logEvent('share_action', { persona_id: personaId, platform });
   }
 
   async logLanguageChange(from: string, to: string) {
