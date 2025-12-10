@@ -1,21 +1,9 @@
-import { useEffect } from 'react';
-import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { Colors } from '../constants/Colors';
 import '../i18n/i18n.config';
 
 export default function RootLayout() {
-  useEffect(() => {
-    // Initialize IAP only on native platforms (not web)
-    if (Platform.OS !== 'web') {
-      import('../services/iap').then(({ iapService }) => {
-        iapService.initialize();
-        return () => {
-          iapService.disconnect();
-        };
-      });
-    }
-  }, []);
+  // Note: IAP initialization will be done in native builds only
 
   return (
     <Stack
