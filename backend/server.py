@@ -462,6 +462,327 @@ async def validate_purchase(request: PurchaseValidationRequest):
         logger.error(f"Error validating purchase: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error validating purchase: {str(e)}")
 
+# ============================================
+# PHASE 3: VIRAL GROWTH FEATURES
+# ============================================
+
+@api_router.post("/generate-story-pack")
+async def generate_story_pack(request: StoryPackRequest):
+    """Generate 3-slide story pack for Instagram/TikTok"""
+    try:
+        # Get persona from database
+        persona = await db.personas.find_one({"id": request.persona_id})
+        if not persona:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        
+        logger.info(f"Generating story pack for persona: {request.persona_id}")
+        
+        # Canvas size: 1080x1920 (9:16)
+        width, height = 1080, 1920
+        slides = []
+        
+        # Load avatar
+        avatar_data = base64.b64decode(persona['avatar_base64'])
+        avatar_img = Image.open(BytesIO(avatar_data))
+        
+        try:
+            font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 70)
+            font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+            font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
+            font_tiny = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
+        except:
+            font_large = ImageFont.load_default()
+            font_medium = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+            font_tiny = ImageFont.load_default()
+        
+        # SLIDE 1: Avatar + Persona Name
+        slide1 = Image.new('RGB', (width, height), color='#0a0a0a')
+        draw1 = ImageDraw.Draw(slide1)
+        
+        # Add gradient background
+        for y in range(height):
+            alpha = int((y / height) * 100)
+            color = (10 + alpha//3, 10 + alpha//5, 30 + alpha//2)
+            draw1.rectangle([(0, y), (width, y + 1)], fill=color)
+        
+        # Resize and center avatar
+        avatar_size = 700
+        avatar_resized = avatar_img.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
+        avatar_position = ((width - avatar_size) // 2, 300)
+        
+        # Create circular mask
+        mask = Image.new('L', (avatar_size, avatar_size), 0)
+        mask_draw = ImageDraw.Draw(mask)
+        mask_draw.ellipse([(0, 0), (avatar_size, avatar_size)], fill=255)
+        
+        slide1.paste(avatar_resized, avatar_position, mask)
+        
+        # Add persona name
+        name_text = persona['persona_name']
+        name_bbox = draw1.textbbox((0, 0), name_text, font=font_large)
+        name_width = name_bbox[2] - name_bbox[0]
+        draw1.text(((width - name_width) // 2, 1100), name_text, fill='#FFFFFF', font=font_large)
+        
+        # Add theme
+        theme_text = persona['persona_theme']
+        theme_bbox = draw1.textbbox((0, 0), theme_text, font=font_small)
+        theme_width = theme_bbox[2] - theme_bbox[0]
+        draw1.text(((width - theme_width) // 2, 1200), theme_text, fill='#00FFFF', font=font_small)
+        
+        # Watermark
+        watermark = "FIND ME AI"
+        watermark_bbox = draw1.textbbox((0, 0), watermark, font=font_tiny)
+        watermark_width = watermark_bbox[2] - watermark_bbox[0]
+        draw1.text(((width - watermark_width) // 2, height - 100), watermark, fill='#707070', font=font_tiny)
+        
+        # Convert to base64
+        buffer1 = BytesIO()
+        slide1.save(buffer1, format='PNG', quality=95)
+        slide1_base64 = base64.b64encode(buffer1.getvalue()).decode('utf-8')
+        slides.append(slide1_base64)
+        
+        # SLIDE 2: Traits + Bio
+        slide2 = Image.new('RGB', (width, height), color='#0a0a0a')
+        draw2 = ImageDraw.Draw(slide2)
+        
+        # Add gradient
+        for y in range(height):
+            alpha = int((y / height) * 100)
+            color = (10 + alpha//3, 10 + alpha//5, 30 + alpha//2)
+            draw2.rectangle([(0, y), (width, y + 1)], fill=color)
+        
+        # Title
+        title = "PERSONALITY TRAITS"
+        title_bbox = draw2.textbbox((0, 0), title, font=font_medium)
+        title_width = title_bbox[2] - title_bbox[0]
+        draw2.text(((width - title_width) // 2, 200), title, fill='#00FFFF', font=font_medium)
+        
+        # Traits
+        y_pos = 350
+        for i, trait in enumerate(persona['traits'][:5], 1):
+            # Trait number
+            draw2.ellipse([(100, y_pos), (150, y_pos + 50)], fill='#FF3366')
+            num_bbox = draw2.textbbox((0, 0), str(i), font=font_small)
+            num_width = num_bbox[2] - num_bbox[0]
+            draw2.text((125 - num_width//2, y_pos + 5), str(i), fill='#FFFFFF', font=font_small)
+            
+            # Trait text - word wrap
+            words = trait.split()
+            lines = []
+            current_line = []
+            for word in words:
+                current_line.append(word)
+                line_text = ' '.join(current_line)
+                bbox = draw2.textbbox((0, 0), line_text, font=font_small)
+                if bbox[2] - bbox[0] > width - 250:
+                    current_line.pop()
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            for line in lines[:2]:  # Max 2 lines per trait
+                draw2.text((180, y_pos), line, fill='#FFFFFF', font=font_small)
+                y_pos += 55
+            
+            y_pos += 80
+        
+        # Watermark
+        draw2.text(((width - watermark_width) // 2, height - 100), watermark, fill='#707070', font=font_tiny)
+        
+        buffer2 = BytesIO()
+        slide2.save(buffer2, format='PNG', quality=95)
+        slide2_base64 = base64.b64encode(buffer2.getvalue()).decode('utf-8')
+        slides.append(slide2_base64)
+        
+        # SLIDE 3: CTA (Call-to-Action)
+        slide3 = Image.new('RGB', (width, height), color='#0a0a0a')
+        draw3 = ImageDraw.Draw(slide3)
+        
+        # Gradient
+        for y in range(height):
+            alpha = int((y / height) * 150)
+            color = (20 + alpha//2, 10 + alpha//4, 40 + alpha//3)
+            draw3.rectangle([(0, y), (width, y + 1)], fill=color)
+        
+        # Quote at top
+        quote_text = f'"{persona["share_quote"]}"'
+        words = quote_text.split()
+        lines = []
+        current_line = []
+        for word in words:
+            current_line.append(word)
+            line_text = ' '.join(current_line)
+            bbox = draw3.textbbox((0, 0), line_text, font=font_small)
+            if bbox[2] - bbox[0] > width - 100:
+                current_line.pop()
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+        if current_line:
+            lines.append(' '.join(current_line))
+        
+        y_pos = 400
+        for line in lines[:4]:
+            bbox = draw3.textbbox((0, 0), line, font=font_small)
+            line_width = bbox[2] - bbox[0]
+            draw3.text(((width - line_width) // 2, y_pos), line, fill='#00FFFF', font=font_small)
+            y_pos += 60
+        
+        # CTA text
+        cta_lines = [
+            "DISCOVER YOUR",
+            "ALTER EGO",
+            "",
+            "TAG A FRIEND",
+            "AND I'LL GENERATE",
+            "THEIR PERSONA TOO!"
+        ]
+        
+        y_pos = 1000
+        for line in cta_lines:
+            if line == "":
+                y_pos += 30
+                continue
+            bbox = draw3.textbbox((0, 0), line, font=font_medium)
+            line_width = bbox[2] - bbox[0]
+            fill_color = '#FF3366' if 'TAG' in line or 'FRIEND' in line else '#FFFFFF'
+            draw3.text(((width - line_width) // 2, y_pos), line, fill=fill_color, font=font_medium)
+            y_pos += 70
+        
+        # App name
+        app_text = "FIND ME AI"
+        app_bbox = draw3.textbbox((0, 0), app_text, font=font_large)
+        app_width = app_bbox[2] - app_bbox[0]
+        draw3.text(((width - app_width) // 2, height - 200), app_text, fill='#FFFFFF', font=font_large)
+        
+        buffer3 = BytesIO()
+        slide3.save(buffer3, format='PNG', quality=95)
+        slide3_base64 = base64.b64encode(buffer3.getvalue()).decode('utf-8')
+        slides.append(slide3_base64)
+        
+        logger.info(f"Story pack generated successfully: 3 slides")
+        
+        return {
+            "persona_id": request.persona_id,
+            "slide_1_base64": slides[0],
+            "slide_2_base64": slides[1],
+            "slide_3_base64": slides[2],
+            "template": request.template
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating story pack: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating story pack: {str(e)}")
+
+@api_router.post("/remix-persona")
+async def remix_persona(request: RemixPersonaRequest):
+    """Generate variations of an existing persona"""
+    try:
+        # Get original persona
+        original = await db.personas.find_one({"id": request.original_persona_id})
+        if not original:
+            raise HTTPException(status_code=404, detail="Original persona not found")
+        
+        logger.info(f"Remixing persona: {request.original_persona_id}")
+        
+        variations = []
+        
+        # Generate variations with different creative prompts
+        variation_styles = [
+            "more dramatic and intense",
+            "softer and more approachable",
+            "edgier and more rebellious"
+        ]
+        
+        for i in range(min(request.variation_count, 3)):
+            style = variation_styles[i]
+            
+            # Create variation prompt
+            system_message = f"""
+You are FIND ME AI. Create a VARIATION of the given persona with a {style} tone.
+
+Keep the SAME persona theme but change:
+- Persona name (make it different but related)
+- Bio (rewrite with {style} approach)
+- Traits (adjust to match {style} vibe)
+- Quote (new quote with {style} energy)
+
+Output format (in {original['language']}):
+PERSONA NAME: [New stylish name]
+BIO: [2-3 sentences with {style} tone]
+TRAITS:
+- [Trait 1]
+- [Trait 2]
+- [Trait 3]
+- [Trait 4]
+- [Trait 5]
+SHARE QUOTE: [New powerful quote]
+"""
+            
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=str(uuid.uuid4()),
+                system_message=system_message
+            ).with_model("openai", "gpt-4o")
+            
+            user_message = UserMessage(
+                text=f"""
+Original Persona: {original['persona_name']}
+Theme: {original['persona_theme']}
+Original Bio: {original['bio_paragraph']}
+
+Create a {style} variation of this persona.
+"""
+            )
+            
+            response = await chat.send_message(user_message)
+            persona_data = parse_persona_response(response, original.get('language', 'tr'))
+            
+            # Create variation object
+            variation = {
+                "id": str(uuid.uuid4()),
+                "original_persona_id": request.original_persona_id,
+                "persona_name": persona_data['name'],
+                "bio_paragraph": persona_data['bio'],
+                "traits": persona_data['traits'],
+                "share_quote": persona_data['quote'],
+                "avatar_base64": original['avatar_base64'],  # Reuse original avatar
+                "persona_theme": original['persona_theme'],
+                "language": original.get('language', 'tr'),
+                "variation_style": style,
+                "created_at": datetime.utcnow()
+            }
+            
+            # Save variation
+            await db.persona_variations.insert_one(variation)
+            variations.append(variation)
+            
+            logger.info(f"Variation {i+1} created: {variation['id']}")
+        
+        return {
+            "original_persona_id": request.original_persona_id,
+            "variations": [
+                {
+                    "id": v["id"],
+                    "persona_name": v["persona_name"],
+                    "bio_paragraph": v["bio_paragraph"],
+                    "traits": v["traits"],
+                    "share_quote": v["share_quote"],
+                    "avatar_base64": v["avatar_base64"],
+                    "variation_style": v["variation_style"]
+                }
+                for v in variations
+            ]
+        }
+        
+    except Exception as e:
+        logger.error(f"Error remixing persona: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error remixing persona: {str(e)}")
+
+
 def parse_persona_response(response: str, language: str = 'tr') -> dict:
     """Parse the LLM response to extract persona data"""
     try:
