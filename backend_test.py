@@ -184,6 +184,152 @@ class APITester:
         except Exception as e:
             self.log_test("Get Persona by ID", False, f"Request failed: {str(e)}")
             return False
+
+    def get_existing_personas(self) -> list:
+        """Get existing personas from database for testing"""
+        try:
+            response = self.session.get(f"{self.base_url}/api/personas", timeout=10)
+            if response.status_code == 200:
+                personas = response.json()
+                print(f"📋 Found {len(personas)} existing personas in database")
+                return personas
+            else:
+                print(f"⚠️  Could not fetch personas: {response.status_code}")
+                return []
+        except Exception as e:
+            print(f"⚠️  Error fetching personas: {e}")
+            return []
+
+    def test_story_pack_generation(self, persona_id: str) -> bool:
+        """Test POST /api/generate-story-pack endpoint (Phase 3 feature)"""
+        if not persona_id:
+            self.log_test("Story Pack Generation", False, "No persona ID provided for testing")
+            return False
+            
+        test_payload = {
+            "persona_id": persona_id,
+            "template": "default"
+        }
+        
+        try:
+            print("🎨 Starting story pack generation (expected: 30-40 seconds)...")
+            start_time = time.time()
+            
+            response = self.session.post(
+                f"{self.base_url}/api/generate-story-pack",
+                json=test_payload,
+                timeout=60  # Allow extra time for safety
+            )
+            
+            elapsed_time = time.time() - start_time
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Validate required fields
+                required_fields = ["persona_id", "slide_1_base64", "slide_2_base64", "slide_3_base64", "template"]
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if missing_fields:
+                    self.log_test("Story Pack Generation", False, f"Missing required fields: {missing_fields}", data)
+                    return False
+                
+                # Validate base64 images
+                for i in range(1, 4):
+                    slide_key = f'slide_{i}_base64'
+                    if not data[slide_key] or len(data[slide_key]) < 100:
+                        self.log_test("Story Pack Generation", False, f"Slide {i} base64 data invalid (too short)", data)
+                        return False
+                
+                self.log_test("Story Pack Generation", True, 
+                            f"Generated 3 slides in {elapsed_time:.1f}s. Template: {data['template']}", 
+                            {k: v if 'base64' not in k else f"[base64 image {len(v)} chars]" for k, v in data.items()})
+                return True
+                
+            elif response.status_code == 404:
+                self.log_test("Story Pack Generation", False, f"Persona not found (404) - ID: {persona_id}", response.text)
+                return False
+            else:
+                self.log_test("Story Pack Generation", False, 
+                            f"HTTP {response.status_code} after {elapsed_time:.1f}s: {response.text}", 
+                            response.text)
+                return False
+                
+        except requests.exceptions.Timeout:
+            self.log_test("Story Pack Generation", False, "Request timed out after 60 seconds")
+            return False
+        except Exception as e:
+            self.log_test("Story Pack Generation", False, f"Request failed: {str(e)}")
+            return False
+
+    def test_remix_persona(self, persona_id: str) -> bool:
+        """Test POST /api/remix-persona endpoint (Phase 3 feature)"""
+        if not persona_id:
+            self.log_test("Remix Persona", False, "No persona ID provided for testing")
+            return False
+            
+        test_payload = {
+            "original_persona_id": persona_id,
+            "variation_count": 3
+        }
+        
+        try:
+            print("🎭 Starting persona remix (expected: 90-120 seconds for 3 AI calls)...")
+            start_time = time.time()
+            
+            response = self.session.post(
+                f"{self.base_url}/api/remix-persona",
+                json=test_payload,
+                timeout=150  # Allow extra time for 3 AI calls
+            )
+            
+            elapsed_time = time.time() - start_time
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Validate response structure
+                if 'original_persona_id' not in data or 'variations' not in data:
+                    self.log_test("Remix Persona", False, "Missing required fields in response", data)
+                    return False
+                
+                variations = data['variations']
+                if len(variations) != 3:
+                    self.log_test("Remix Persona", False, f"Expected 3 variations, got {len(variations)}", data)
+                    return False
+                
+                # Validate each variation
+                for i, variation in enumerate(variations, 1):
+                    required_fields = ['id', 'persona_name', 'bio_paragraph', 'traits', 'share_quote', 'avatar_base64', 'variation_style']
+                    missing_fields = [field for field in required_fields if field not in variation]
+                    
+                    if missing_fields:
+                        self.log_test("Remix Persona", False, f"Variation {i} missing fields: {missing_fields}", variation)
+                        return False
+                
+                variation_names = [v['persona_name'] for v in variations]
+                variation_styles = [v['variation_style'] for v in variations]
+                
+                self.log_test("Remix Persona", True, 
+                            f"Generated 3 variations in {elapsed_time:.1f}s. Names: {variation_names}, Styles: {variation_styles}", 
+                            {k: v if k != 'variations' else f"[{len(v)} variations]" for k, v in data.items()})
+                return True
+                
+            elif response.status_code == 404:
+                self.log_test("Remix Persona", False, f"Persona not found (404) - ID: {persona_id}", response.text)
+                return False
+            else:
+                self.log_test("Remix Persona", False, 
+                            f"HTTP {response.status_code} after {elapsed_time:.1f}s: {response.text}", 
+                            response.text)
+                return False
+                
+        except requests.exceptions.Timeout:
+            self.log_test("Remix Persona", False, "Request timed out after 150 seconds")
+            return False
+        except Exception as e:
+            self.log_test("Remix Persona", False, f"Request failed: {str(e)}")
+            return False
     
     def run_all_tests(self):
         """Run all API tests in sequence"""
