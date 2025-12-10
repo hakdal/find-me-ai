@@ -884,6 +884,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@api_router.get("/download-source")
+async def download_source():
+    """Temporary endpoint to download source code"""
+    from fastapi.responses import FileResponse
+    import os
+    file_path = "/tmp/find-me-ai-github.tar.gz"
+    if os.path.exists(file_path):
+        return FileResponse(
+            path=file_path,
+            media_type='application/gzip',
+            filename='find-me-ai-source.tar.gz'
+        )
+    raise HTTPException(status_code=404, detail="Source file not found")
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
