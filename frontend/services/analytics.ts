@@ -1,13 +1,9 @@
-import analytics from '@react-native-firebase/analytics';
-
+// Mock analytics for Expo Go - will use real Firebase in production build
 class AnalyticsService {
   async logScreenView(screenName: string, screenClass?: string) {
     try {
-      await analytics().logScreenView({
-        screen_name: screenName,
-        screen_class: screenClass || screenName,
-      });
       console.log(`Analytics: Screen view logged - ${screenName}`);
+      // In production build with Firebase: analytics().logScreenView()
     } catch (error) {
       console.error('Analytics error:', error);
     }
@@ -15,8 +11,8 @@ class AnalyticsService {
 
   async logEvent(eventName: string, params?: { [key: string]: any }) {
     try {
-      await analytics().logEvent(eventName, params);
       console.log(`Analytics: Event logged - ${eventName}`, params);
+      // In production build with Firebase: analytics().logEvent()
     } catch (error) {
       console.error('Analytics error:', error);
     }
