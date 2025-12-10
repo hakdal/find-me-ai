@@ -62,8 +62,7 @@
           "savePhotosPermission": "Allow Find Me AI to save photos.",
           "isAccessMediaLocationEnabled": true
         }
-      ],
-      "@react-native-firebase/app"
+      ]
     ],
     "experiments": {
       "typedRoutes": true
