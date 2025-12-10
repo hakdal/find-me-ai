@@ -1,17 +1,19 @@
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, Platform } from 'expo-router';
 import { Colors } from '../constants/Colors';
 import '../i18n/i18n.config';
-import { iapService } from '../services/iap';
 
 export default function RootLayout() {
   useEffect(() => {
-    // Initialize IAP
-    iapService.initialize();
-
-    return () => {
-      iapService.disconnect();
-    };
+    // Initialize IAP only on native platforms
+    if (Platform.OS !== 'web') {
+      import('../services/iap').then(({ iapService }) => {
+        iapService.initialize();
+        return () => {
+          iapService.disconnect();
+        };
+      });
+    }
   }, []);
 
   return (
