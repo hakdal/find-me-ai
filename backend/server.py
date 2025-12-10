@@ -69,6 +69,14 @@ class GeneratedPersona(BaseModel):
 class ShareCardRequest(BaseModel):
     persona_id: str
 
+class StoryPackRequest(BaseModel):
+    persona_id: str
+    template: str = "default"  # default, minimal, bold
+
+class RemixPersonaRequest(BaseModel):
+    original_persona_id: str
+    variation_count: int = 3
+
 class PurchaseValidationRequest(BaseModel):
     product_id: str
     purchase_token: str
