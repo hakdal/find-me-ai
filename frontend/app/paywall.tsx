@@ -72,6 +72,18 @@ export default function PaywallScreen() {
       setPurchasing(true);
       analyticsService.logPurchaseAttempt(productId);
 
+      if (Platform.OS === 'web') {
+        // Web platform - show message
+        Alert.alert(
+          'Not Available on Web',
+          'In-app purchases are only available on mobile devices. Please use the mobile app.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Native platforms - use IAP
+      const { iapService } = await import('../services/iap');
       await iapService.purchaseProduct(productId);
 
       // Success handled by IAP listener
