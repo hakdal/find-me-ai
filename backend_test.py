@@ -20,7 +20,7 @@ def get_backend_url():
                     return url
     except:
         pass
-    return "https://selfie-persona.preview.emergentagent.com"
+    return "https://ai-alter.preview.emergentagent.com"
 
 BACKEND_URL = get_backend_url()
 
