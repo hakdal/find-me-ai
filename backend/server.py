@@ -123,6 +123,11 @@ PERSONA_THEMES = {
 async def root():
     return {"message": "FIND ME AI API"}
 
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {"status": "healthy", "service": "FIND ME AI API", "version": "1.0.0"}
+
 @api_router.post("/generate-persona", response_model=GeneratedPersona)
 async def generate_persona(request: GeneratePersonaRequest):
     try:
