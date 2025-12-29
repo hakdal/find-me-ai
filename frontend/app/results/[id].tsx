@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Share,
   Dimensions,
   ActivityIndicator,
-  Platform,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -18,9 +18,11 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system';
 
 const { width } = Dimensions.get('window');
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://ai-alter.preview.emergentagent.com';
 
 interface PersonaData {
   id: string;
@@ -33,16 +35,78 @@ interface PersonaData {
   created_at: string;
 }
 
+// Persona titles based on theme
+const PERSONA_TITLES: Record<string, { title: string; level: number; maxLevel: number }> = {
+  'Midnight CEO': { title: 'Gölgelerin Lideri', level: 9, maxLevel: 12 },
+  'Dark Charmer': { title: 'Büyülü Karizmatik', level: 8, maxLevel: 12 },
+  'Alpha Strategist': { title: 'Strateji Ustası', level: 10, maxLevel: 12 },
+  'Glam Diva': { title: 'Işıltının Kraliçesi', level: 7, maxLevel: 12 },
+};
+
+// Stat bar component
+const StatBar = ({ label, value, color, delay }: { label: string; value: number; color: string; delay: number }) => {
+  const animValue = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    Animated.timing(animValue, {
+      toValue: value,
+      duration: 1000,
+      delay: delay,
+      useNativeDriver: false,
+    }).start();
+  }, [value]);
+
+  const widthInterpolate = animValue.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
+
+  return (
+    <View style={styles.statContainer}>
+      <View style={styles.statHeader}>
+        <Text style={styles.statLabel}>{label}</Text>
+        <Text style={styles.statValue}>{value}%</Text>
+      </View>
+      <View style={styles.statBarBg}>
+        <Animated.View style={[styles.statBarFill, { width: widthInterpolate, backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+};
+
 export default function ResultsScreen() {
   const { t } = useTranslation();
   const { id } = useLocalSearchParams();
   const [persona, setPersona] = useState<PersonaData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [generatingShareCard, setGeneratingShareCard] = useState(false);
   const router = useRouter();
+  
+  // Animation refs
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
 
   useEffect(() => {
     fetchPersona();
   }, [id]);
+
+  useEffect(() => {
+    if (persona) {
+      // Entrance animation
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [persona]);
 
   const fetchPersona = async () => {
     try {
@@ -55,67 +119,62 @@ export default function ResultsScreen() {
     }
   };
 
-  const [generatingStoryPack, setGeneratingStoryPack] = useState(false);
-  const [remixing, setRemixing] = useState(false);
-  const [showRemixMenu, setShowRemixMenu] = useState(false);
-
-  const handleShare = async () => {
-    if (!persona) return;
-
-    try {
-      await Share.share({
-        message: `🔮 ${persona.persona_name}\n\n${persona.share_quote}\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
-      });
-    } catch (error) {
-      console.error('Error sharing:', error);
-    }
+  // Generate stats from traits (deterministic based on persona)
+  const generateStats = () => {
+    if (!persona) return { leadership: 50, empathy: 50, risk: 50 };
+    
+    const hash = persona.id.split('').reduce((a, b) => {
+      a = ((a << 5) - a) + b.charCodeAt(0);
+      return a & a;
+    }, 0);
+    
+    return {
+      leadership: 60 + (Math.abs(hash) % 35),
+      empathy: 55 + (Math.abs(hash >> 4) % 40),
+      risk: 50 + (Math.abs(hash >> 8) % 45),
+    };
   };
 
-  const generateStoryPack = async () => {
+  const stats = generateStats();
+  const personaTitle = PERSONA_TITLES[persona?.persona_theme || ''] || { title: 'Gizemli Ruh', level: 7, maxLevel: 12 };
+
+  const handleShareCard = async () => {
     if (!persona) return;
 
     try {
-      setGeneratingStoryPack(true);
+      setGeneratingShareCard(true);
       
-      const response = await axios.post(`${BACKEND_URL}/api/generate-story-pack`, {
+      // Generate share card from backend
+      const response = await axios.post(`${BACKEND_URL}/api/generate-share-card`, {
         persona_id: persona.id,
-        template: 'default',
       });
 
-      if (response.data) {
-        // For now, just show success message
-        // In native build, we'll save to gallery
-        alert('✅ Story Pack Generated! 3 slides ready.\n\n(Saving to gallery available in native app)');
+      if (response.data && response.data.share_card_base64) {
+        // Save to gallery and share
+        const fileUri = FileSystem.documentDirectory + `findmeai_${persona.id}.png`;
+        await FileSystem.writeAsStringAsync(fileUri, response.data.share_card_base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        
+        // Request permission and save
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === 'granted') {
+          await MediaLibrary.saveToLibraryAsync(fileUri);
+        }
+
+        // Share
+        await Share.share({
+          message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
+        });
       }
     } catch (error) {
-      console.error('Error generating story pack:', error);
-      alert('Error generating story pack. Please try again.');
+      console.error('Error generating share card:', error);
+      // Fallback to text share
+      await Share.share({
+        message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
+      });
     } finally {
-      setGeneratingStoryPack(false);
-    }
-  };
-
-  const handleRemix = async () => {
-    if (!persona) return;
-
-    try {
-      setRemixing(true);
-      
-      const response = await axios.post(`${BACKEND_URL}/api/remix-persona`, {
-        original_persona_id: persona.id,
-        variation_count: 3,
-      });
-
-      if (response.data && response.data.variations) {
-        setRemixing(false);
-        setShowRemixMenu(true);
-        // Show variations in a modal or navigate to variation selector
-        alert(`✨ ${response.data.variations.length} Remixes Created!\n\nExplore different vibes of your persona.`);
-      }
-    } catch (error) {
-      console.error('Error remixing persona:', error);
-      alert('Error creating remixes. Please try again.');
-      setRemixing(false);
+      setGeneratingShareCard(false);
     }
   };
 
@@ -158,140 +217,123 @@ export default function ResultsScreen() {
           <TouchableOpacity style={styles.backButton} onPress={createAnother}>
             <Ionicons name="close" size={28} color={Colors.text} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{persona.persona_theme}</Text>
-          <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
-            <Ionicons name="share-social" size={24} color={Colors.text} />
-          </TouchableOpacity>
+          <View style={styles.levelBadge}>
+            <Text style={styles.levelText}>LVL {personaTitle.level}/{personaTitle.maxLevel}</Text>
+          </View>
+          <View style={{ width: 44 }} />
         </View>
 
-        {/* Avatar */}
-        <View style={styles.avatarContainer}>
-          <LinearGradient
-            colors={[Colors.gradient1, Colors.gradient2]}
-            style={styles.avatarGradient}
-          >
-            <Image
-              source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }}
-              style={styles.avatar}
-              resizeMode="cover"
-            />
-          </LinearGradient>
-        </View>
-
-        {/* Persona Name */}
-        <Text style={styles.personaName}>{persona.persona_name}</Text>
-
-        {/* Bio */}
-        <View style={styles.bioContainer}>
-          <Text style={styles.bioLabel}>{t('results.analysis')}</Text>
-          <Text style={styles.bioText}>{persona.bio_paragraph}</Text>
-        </View>
-
-        {/* Traits */}
-        <View style={styles.traitsContainer}>
-          <Text style={styles.traitsLabel}>{t('results.traits')}</Text>
-          {persona.traits.map((trait, index) => (
-            <View key={index} style={styles.traitItem}>
-              <LinearGradient
-                colors={[Colors.primary, Colors.gradient2]}
-                style={styles.traitDot}
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          {/* Avatar with glow */}
+          <View style={styles.avatarContainer}>
+            <View style={styles.avatarGlow} />
+            <LinearGradient
+              colors={[Colors.primary, Colors.gradient2, Colors.secondary]}
+              style={styles.avatarGradient}
+            >
+              <Image
+                source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }}
+                style={styles.avatar}
+                resizeMode="cover"
               />
-              <Text style={styles.traitText}>{trait}</Text>
-            </View>
-          ))}
-        </View>
+            </LinearGradient>
+          </View>
 
-        {/* Quote */}
-        <View style={styles.quoteContainer}>
-          <LinearGradient
-            colors={[Colors.surfaceLight, Colors.surface]}
-            style={styles.quoteGradient}
-          >
-            <Ionicons
-              name="chatbubble-ellipses"
-              size={32}
-              color={Colors.secondary}
-              style={styles.quoteIcon}
-            />
-            <Text style={styles.quoteText}>"{persona.share_quote}"</Text>
-          </LinearGradient>
-        </View>
+          {/* Persona Name + Title + Level */}
+          <View style={styles.nameContainer}>
+            <Text style={styles.personaName}>{persona.persona_name}</Text>
+            <View style={styles.titleRow}>
+              <Text style={styles.personaTitle}>{personaTitle.title}</Text>
+              <View style={styles.themeBadge}>
+                <Text style={styles.themeText}>{persona.persona_theme}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Stats Bars */}
+          <View style={styles.statsSection}>
+            <Text style={styles.sectionTitle}>✨ KİŞİLİK ANALİZİ</Text>
+            <StatBar label="Liderlik" value={stats.leadership} color="#FF3366" delay={200} />
+            <StatBar label="Empati" value={stats.empathy} color="#00FFFF" delay={400} />
+            <StatBar label="Risk Alma" value={stats.risk} color="#9933FF" delay={600} />
+          </View>
+
+          {/* Traits */}
+          <View style={styles.traitsContainer}>
+            <Text style={styles.sectionTitle}>🔥 ÖZELLİKLER</Text>
+            <View style={styles.traitsGrid}>
+              {persona.traits.slice(0, 5).map((trait, index) => (
+                <View key={index} style={styles.traitChip}>
+                  <Text style={styles.traitChipText}>{trait}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Personal Motto Box */}
+          <View style={styles.mottoContainer}>
+            <LinearGradient
+              colors={['rgba(255,51,102,0.15)', 'rgba(153,51,255,0.15)']}
+              style={styles.mottoGradient}
+            >
+              <View style={styles.mottoHeader}>
+                <Ionicons name="flame" size={20} color={Colors.primary} />
+                <Text style={styles.mottoLabel}>KİŞİSEL MOTTO</Text>
+              </View>
+              <Text style={styles.mottoText}>"{persona.share_quote}"</Text>
+            </LinearGradient>
+          </View>
+
+          {/* Bio */}
+          <View style={styles.bioContainer}>
+            <Text style={styles.sectionTitle}>📖 HİKAYEN</Text>
+            <Text style={styles.bioText}>{persona.bio_paragraph}</Text>
+          </View>
+        </Animated.View>
 
         {/* Actions */}
         <View style={styles.actions}>
-          {/* Story Pack Button - Phase 3 */}
+          {/* Main Share Button - Premium Look */}
           <TouchableOpacity
-            style={styles.storyPackButton}
-            onPress={generateStoryPack}
-            disabled={generatingStoryPack}
-            activeOpacity={0.8}
+            style={styles.mainShareButton}
+            onPress={handleShareCard}
+            disabled={generatingShareCard}
+            activeOpacity={0.85}
           >
             <LinearGradient
-              colors={['#9933FF', '#CC00FF']}
+              colors={['#FF3366', '#FF6B6B', '#FF3366']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={styles.shareGradient}
+              style={styles.mainShareGradient}
             >
-              {generatingStoryPack ? (
+              {generatingShareCard ? (
                 <ActivityIndicator size="small" color={Colors.text} />
               ) : (
                 <>
-                  <Ionicons name="images" size={24} color={Colors.text} />
-                  <Text style={styles.shareButtonText}>📱 Generate Story Pack (3 slides)</Text>
+                  <Ionicons name="share-social" size={26} color={Colors.text} />
+                  <View style={styles.shareTextContainer}>
+                    <Text style={styles.mainShareText}>PAYLAŞ</Text>
+                    <Text style={styles.shareSubtext}>Story formatında kaydet</Text>
+                  </View>
                 </>
               )}
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Remix Button - Phase 3 */}
-          <TouchableOpacity
-            style={styles.remixButton}
-            onPress={handleRemix}
-            disabled={remixing}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={[Colors.secondary, '#00AAAA']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.shareGradient}
-            >
-              {remixing ? (
-                <ActivityIndicator size="small" color={Colors.text} />
-              ) : (
-                <>
-                  <Ionicons name="shuffle" size={24} color={Colors.text} />
-                  <Text style={styles.shareButtonText}>✨ Remix (Get Variations)</Text>
-                </>
-              )}
-            </LinearGradient>
-          </TouchableOpacity>
-
-          {/* Original Share Button */}
-          <TouchableOpacity
-            style={styles.shareButtonLarge}
-            onPress={handleShare}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={[Colors.primary, Colors.gradient2]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.shareGradient}
-            >
-              <Ionicons name="share-social" size={24} color={Colors.text} />
-              <Text style={styles.shareButtonText}>{t('results.share')}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
+          {/* Secondary: Create Another */}
           <TouchableOpacity
             style={styles.createAnotherButton}
             onPress={createAnother}
             activeOpacity={0.8}
           >
-            <Ionicons name="add-circle" size={24} color={Colors.text} />
-            <Text style={styles.createAnotherText}>{t('results.createAnother')}</Text>
+            <Ionicons name="sparkles" size={20} color={Colors.textSecondary} />
+            <Text style={styles.createAnotherText}>Yeni Persona Oluştur</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Bottom Logo */}
+        <View style={styles.bottomLogo}>
+          <Text style={styles.logoText}>FIND ME AI</Text>
         </View>
 
         <View style={{ height: 40 }} />
@@ -317,7 +359,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 50,
-    paddingBottom: 20,
+    paddingBottom: 10,
   },
   backButton: {
     width: 44,
@@ -327,164 +369,235 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.secondary,
+  levelBadge: {
+    backgroundColor: 'rgba(153,51,255,0.3)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(153,51,255,0.5)',
   },
-  shareButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.surfaceLight,
-    justifyContent: 'center',
-    alignItems: 'center',
+  levelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#CC99FF',
+    letterSpacing: 1,
   },
   avatarContainer: {
     alignItems: 'center',
     marginVertical: 20,
+    position: 'relative',
+  },
+  avatarGlow: {
+    position: 'absolute',
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: Colors.primary,
+    opacity: 0.2,
+    top: -10,
   },
   avatarGradient: {
-    padding: 4,
-    borderRadius: 120,
+    padding: 5,
+    borderRadius: 130,
   },
   avatar: {
-    width: 240,
-    height: 240,
-    borderRadius: 120,
+    width: 250,
+    height: 250,
+    borderRadius: 125,
     backgroundColor: Colors.surface,
   },
+  nameContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 24,
+  },
   personaName: {
-    fontSize: 32,
+    fontSize: 34,
     fontWeight: '900',
     color: Colors.text,
     textAlign: 'center',
-    marginTop: 16,
-    marginBottom: 24,
+    marginBottom: 8,
+    textShadowColor: 'rgba(255,51,102,0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 10,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  personaTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.secondary,
+  },
+  themeBadge: {
+    backgroundColor: Colors.surfaceLight,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  themeText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  statsSection: {
     paddingHorizontal: 24,
+    marginBottom: 28,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: 16,
+    letterSpacing: 1,
+  },
+  statContainer: {
+    marginBottom: 16,
+  },
+  statHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
+  statValue: {
+    fontSize: 14,
+    color: Colors.text,
+    fontWeight: '700',
+  },
+  statBarBg: {
+    height: 10,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 5,
+    overflow: 'hidden',
+  },
+  statBarFill: {
+    height: '100%',
+    borderRadius: 5,
+  },
+  traitsContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 28,
+  },
+  traitsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  traitChip: {
+    backgroundColor: Colors.surfaceLight,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  traitChipText: {
+    fontSize: 14,
+    color: Colors.text,
+    fontWeight: '500',
+  },
+  mottoContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 28,
+  },
+  mottoGradient: {
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,51,102,0.3)',
+  },
+  mottoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  mottoLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 1,
+  },
+  mottoText: {
+    fontSize: 20,
+    color: Colors.text,
+    fontStyle: 'italic',
+    lineHeight: 30,
+    fontWeight: '500',
   },
   bioContainer: {
     paddingHorizontal: 24,
     marginBottom: 32,
-  },
-  bioLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.secondary,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
   },
   bioText: {
     fontSize: 16,
     color: Colors.textSecondary,
     lineHeight: 26,
   },
-  traitsContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  traitsLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.secondary,
-    marginBottom: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  traitItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  traitDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 12,
-  },
-  traitText: {
-    fontSize: 16,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  quoteContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  quoteGradient: {
-    padding: 24,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  quoteIcon: {
-    marginBottom: 12,
-  },
-  quoteText: {
-    fontSize: 18,
-    color: Colors.text,
-    fontStyle: 'italic',
-    lineHeight: 28,
-  },
   actions: {
     paddingHorizontal: 24,
     gap: 16,
   },
-  storyPackButton: {
+  mainShareButton: {
     borderRadius: 30,
     overflow: 'hidden',
-    elevation: 8,
-    shadowColor: '#9933FF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    elevation: 12,
+    shadowColor: '#FF3366',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
   },
-  remixButton: {
-    borderRadius: 30,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: Colors.secondary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  shareButtonLarge: {
-    borderRadius: 30,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  shareGradient: {
+  mainShareGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 18,
+    paddingVertical: 20,
     paddingHorizontal: 32,
+    gap: 16,
   },
-  shareButtonText: {
-    fontSize: 18,
-    fontWeight: '700',
+  shareTextContainer: {
+    alignItems: 'flex-start',
+  },
+  mainShareText: {
+    fontSize: 20,
+    fontWeight: '800',
     color: Colors.text,
-    marginLeft: 12,
+    letterSpacing: 2,
+  },
+  shareSubtext: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 2,
   },
   createAnotherButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.surfaceLight,
-    paddingVertical: 18,
-    paddingHorizontal: 32,
-    borderRadius: 30,
+    paddingVertical: 16,
+    gap: 8,
   },
   createAnotherText: {
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: '500',
+    color: Colors.textSecondary,
+  },
+  bottomLogo: {
+    alignItems: 'center',
+    marginTop: 32,
+  },
+  logoText: {
+    fontSize: 12,
     fontWeight: '600',
-    color: Colors.text,
-    marginLeft: 12,
+    color: Colors.border,
+    letterSpacing: 4,
   },
   loadingContainer: {
     flex: 1,
