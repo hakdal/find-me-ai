@@ -1,29 +1,26 @@
 workflows:
-  android-debug:
-    name: Android Debug APK
+  android-release:
+    name: Android Release APK
     max_build_duration: 60
-    instance_type: linux_x2
-
+    instance_type: mac_mini_m2
     environment:
-      node: 18
       java: 17
-
+      node: 18
     scripts:
       - name: Install dependencies
         script: |
           cd frontend
           npm install
-
-      - name: Prebuild Android
+      
+      - name: Setup Expo
         script: |
           cd frontend
-          npx expo prebuild --clean
-
-      - name: Build Debug APK
+          npx expo prebuild --platform android --clean
+      
+      - name: Build Release APK
         script: |
           cd frontend/android
-          chmod +x gradlew
-          ./gradlew assembleDebug
-
+          ./gradlew assembleRelease
+    
     artifacts:
-      - frontend/android/app/build/outputs/**/*.apk
+      - frontend/android/app/build/outputs/apk/release/*.apk
