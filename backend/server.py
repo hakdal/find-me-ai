@@ -70,8 +70,13 @@ class GeneratedPersona(BaseModel):
     traits: List[str]
     share_quote: str
     avatar_base64: str
+    avatar_url: Optional[str] = None
     persona_theme: str
     language: str = 'tr'
+    similarity_level: str = 'realistic'
+    mode_used: str = '1-photo'  # '1-photo' or '3-photo'
+    provider: str = 'replicate'  # 'replicate' or 'openai'
+    attempts: int = 1
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ShareCardRequest(BaseModel):
