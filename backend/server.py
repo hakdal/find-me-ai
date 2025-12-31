@@ -15,10 +15,20 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import replicate
 import httpx
+import numpy as np
+import cv2
 
 # Import Emergent integrations
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
+
+# Import DeepFace for gender/age detection
+try:
+    from deepface import DeepFace
+    DEEPFACE_AVAILABLE = True
+except ImportError:
+    DEEPFACE_AVAILABLE = False
+    logging.warning("DeepFace not available, gender detection disabled")
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
