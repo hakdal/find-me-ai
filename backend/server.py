@@ -200,6 +200,24 @@ def detect_gender_from_image(base64_image: str) -> dict:
 async def root():
     return {"message": "FIND ME AI API"}
 
+@api_router.post("/detect-gender")
+async def detect_gender(request: dict):
+    """Test endpoint for gender detection"""
+    try:
+        if 'image_base64' not in request:
+            raise HTTPException(status_code=400, detail="image_base64 is required")
+        
+        gender_info = detect_gender_from_image(request['image_base64'])
+        return {
+            "gender": gender_info['gender'],
+            "age": gender_info['age'],
+            "confidence": gender_info['confidence'],
+            "deepface_available": DEEPFACE_AVAILABLE
+        }
+    except Exception as e:
+        logger.error(f"Error in gender detection endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error detecting gender: {str(e)}")
+
 @api_router.get("/health")
 async def health_check():
     """Health check endpoint for monitoring"""
