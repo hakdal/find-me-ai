@@ -398,9 +398,27 @@ Provide all output in English.
         
         params = similarity_params.get(request.similarity_level, similarity_params['realistic'])
         
+        # Gender-specific prompt additions
+        gender_prompt_additions = {
+            'female': {
+                'positive': 'female, woman, feminine features, soft facial features, feminine beauty',
+                'negative': 'male, man, masculine, beard, moustache, stubble, suit and tie, businessman, adam\'s apple, broad shoulders, masculine jaw'
+            },
+            'male': {
+                'positive': 'male, man, masculine features, strong jawline',
+                'negative': 'female, woman, feminine, lipstick, makeup, feminine clothing, earrings, long eyelashes'
+            },
+            'unknown': {
+                'positive': '',
+                'negative': ''
+            }
+        }
+        
+        gender_additions = gender_prompt_additions.get(detected_gender, gender_prompt_additions['unknown'])
+        
         # Try Replicate InstantID
         if REPLICATE_API_TOKEN:
-            logger.info(f"Using Replicate InstantID with {mode_used}, similarity: {request.similarity_level}")
+            logger.info(f"Using Replicate InstantID with {mode_used}, similarity: {request.similarity_level}, gender: {detected_gender}")
             
             while attempts < max_attempts:
                 attempts += 1
@@ -408,12 +426,16 @@ Provide all output in English.
                     # Convert base64 to data URI for Replicate
                     face_image_uri = f"data:image/jpeg;base64,{all_images[0]}"
                     
-                    prompt = f"""portrait of a person, {style_desc}, {params['prompt_suffix']}, 
+                    # Build gender-aware prompt
+                    prompt = f"""portrait of a person, {gender_additions['positive']}, {style_desc}, {params['prompt_suffix']}, 
                     high quality, detailed face, clean background, professional lighting"""
                     
-                    negative_prompt = """different person, different face, celebrity, generic model, 
+                    negative_prompt = f"""different person, different face, celebrity, generic model, 
                     stock photo, change identity, morph, blurry, deformed, bad anatomy, 
-                    disfigured, poorly drawn face, mutation, extra limbs"""
+                    disfigured, poorly drawn face, mutation, extra limbs, {gender_additions['negative']}"""
+                    
+                    logger.info(f"Avatar prompt: {prompt[:100]}...")
+                    logger.info(f"Avatar negative: {negative_prompt[:100]}...")
                     
                     # Set Replicate API token
                     os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
