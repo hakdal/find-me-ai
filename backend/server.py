@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Header
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -127,6 +128,18 @@ async def root():
 async def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "service": "FIND ME AI API", "version": "1.0.0"}
+
+@api_router.get("/download-project")
+async def download_project():
+    """Download the complete project as a ZIP file"""
+    zip_path = ROOT_DIR / "findmeai-complete.zip"
+    if zip_path.exists():
+        return FileResponse(
+            path=str(zip_path),
+            filename="findmeai-complete.zip",
+            media_type="application/zip"
+        )
+    raise HTTPException(status_code=404, detail="ZIP file not found")
 
 @api_router.post("/generate-persona", response_model=GeneratedPersona)
 async def generate_persona(request: GeneratePersonaRequest):
