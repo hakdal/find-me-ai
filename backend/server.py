@@ -321,7 +321,25 @@ Provide all output in English.
             all_images.extend(request.additional_photos[:2])  # Max 3 total
             mode_used = '3-photo' if len(all_images) >= 3 else '1-photo'
         
-        style_desc = theme_config['prompt_override'] or theme_config['style']
+        # Detect gender from image if not provided by user
+        detected_gender = request.user_gender
+        if not detected_gender:
+            gender_info = detect_gender_from_image(request.selfie_base64)
+            detected_gender = gender_info['gender']
+            logger.info(f"Gender detection result: {gender_info}")
+        
+        # Choose appropriate style based on gender
+        if theme_config['prompt_override']:
+            style_desc = theme_config['prompt_override']
+        elif detected_gender == 'female' and 'style_female' in theme_config:
+            style_desc = theme_config['style_female']
+            logger.info(f"Using female-specific style for {request.persona_theme}")
+        elif detected_gender == 'male' and 'style_male' in theme_config:
+            style_desc = theme_config['style_male']
+            logger.info(f"Using male-specific style for {request.persona_theme}")
+        else:
+            style_desc = theme_config['style']
+            logger.info(f"Using default style for {request.persona_theme} (gender: {detected_gender})")
         
         # InstantID parameters based on similarity level
         # identity_strength: 0-1, higher = more faithful to face
