@@ -237,14 +237,41 @@ Provide all output in English.
         image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
         
         style_desc = theme_config['prompt_override'] or theme_config['style']
+        
+        # Similarity level modifiers
+        similarity_modifiers = {
+            'realistic': """
+CRITICAL: This portrait MUST look like a REAL SPECIFIC PERSON, not a generic model.
+Create an IDENTITY-PRESERVING portrait that maintains the exact facial features, face shape, and unique characteristics.
+The face should be instantly recognizable as a specific individual.
+Photorealistic quality, like a professional headshot photo of a real person.
+NO generic model faces. This should look like a REAL person's LinkedIn/portfolio photo.
+""",
+            'stylized': """
+Create a semi-stylized portrait with artistic interpretation.
+Maintain general facial structure but with artistic flair.
+Think fashion photography meets digital art.
+""",
+            'creative': """
+Create a fully artistic, creative interpretation.
+The face can be highly stylized, artistic, or fantastical.
+Focus on mood, theme, and artistic expression over likeness.
+"""
+        }
+        
+        similarity_mod = similarity_modifiers.get(request.similarity_level, similarity_modifiers['realistic'])
+        
         image_prompt = f"""
-Create a semi-realistic cinematic portrait avatar in 9:16 portrait orientation.
+{similarity_mod}
+
 Style: {style_desc}
-High quality studio lighting, clean soft background, social media ready, professional photography.
-Focus on face and upper body, portrait orientation.
+Portrait orientation (9:16 aspect ratio).
+High quality studio lighting, clean soft background, social media ready.
+Focus on face and upper body.
+Professional photography quality, sharp focus on facial features.
 """
         
-        logger.info(f"Generating avatar with prompt: {image_prompt[:100]}...")
+        logger.info(f"Generating avatar with similarity: {request.similarity_level}, prompt: {image_prompt[:100]}...")
         images = await image_gen.generate_images(
             prompt=image_prompt,
             model="gpt-image-1",
