@@ -28,6 +28,13 @@ const SIMILARITY_LEVELS = [
   { id: 'creative', label: 'Yaratıcı', icon: 'sparkles', description: 'Tamamen yaratıcı' },
 ];
 
+// Gender options
+const GENDER_OPTIONS = [
+  { id: 'female', label: 'Kadın', icon: 'female' },
+  { id: 'male', label: 'Erkek', icon: 'male' },
+  { id: 'auto', label: 'Otomatik Algıla', icon: 'scan' },
+];
+
 export default function CameraScreen() {
   const [facing, setFacing] = useState<CameraType>('front');
   const [permission, requestPermission] = useCameraPermissions();
@@ -35,6 +42,7 @@ export default function CameraScreen() {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [photoMode, setPhotoMode] = useState<'single' | 'multi'>('multi'); // Default multi
   const [similarityLevel, setSimilarityLevel] = useState('realistic');
+  const [userGender, setUserGender] = useState<string>('auto'); // 'female', 'male', or 'auto'
   const [showSettings, setShowSettings] = useState(false);
   const cameraRef = useRef<any>(null);
   const router = useRouter();
