@@ -10,6 +10,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Animated,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -20,6 +21,7 @@ import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://ai-alter.preview.emergentagent.com';
@@ -35,7 +37,13 @@ interface PersonaData {
   created_at: string;
 }
 
-// Persona titles based on theme
+// Persona titles and levels
+const LEVEL_NAMES: Record<number, string> = {
+  1: 'Çaylak', 2: 'Acemi', 3: 'Öğrenci', 4: 'Aday',
+  5: 'Yetkin', 6: 'Uzman', 7: 'Usta', 8: 'Virtuoso',
+  9: 'Efsane', 10: 'Grandmaster', 11: 'Mythic', 12: 'Tanrısal'
+};
+
 const PERSONA_TITLES: Record<string, { title: string; level: number; maxLevel: number }> = {
   'Midnight CEO': { title: 'Gölgelerin Lideri', level: 9, maxLevel: 12 },
   'Dark Charmer': { title: 'Büyülü Karizmatik', level: 8, maxLevel: 12 },
@@ -80,6 +88,8 @@ export default function ResultsScreen() {
   const [persona, setPersona] = useState<PersonaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingShareCard, setGeneratingShareCard] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [showLevelInfo, setShowLevelInfo] = useState(false);
   const router = useRouter();
   
   // Animation refs
@@ -92,7 +102,6 @@ export default function ResultsScreen() {
 
   useEffect(() => {
     if (persona) {
-      // Entrance animation
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -119,15 +128,12 @@ export default function ResultsScreen() {
     }
   };
 
-  // Generate stats from traits (deterministic based on persona)
   const generateStats = () => {
     if (!persona) return { leadership: 50, empathy: 50, risk: 50 };
-    
     const hash = persona.id.split('').reduce((a, b) => {
       a = ((a << 5) - a) + b.charCodeAt(0);
       return a & a;
     }, 0);
-    
     return {
       leadership: 60 + (Math.abs(hash) % 35),
       empathy: 55 + (Math.abs(hash >> 4) % 40),
@@ -137,44 +143,51 @@ export default function ResultsScreen() {
 
   const stats = generateStats();
   const personaTitle = PERSONA_TITLES[persona?.persona_theme || ''] || { title: 'Gizemli Ruh', level: 7, maxLevel: 12 };
+  const levelName = LEVEL_NAMES[personaTitle.level] || 'Usta';
 
   const handleShareCard = async () => {
     if (!persona) return;
-
     try {
       setGeneratingShareCard(true);
-      
-      // Generate share card from backend
       const response = await axios.post(`${BACKEND_URL}/api/generate-share-card`, {
         persona_id: persona.id,
       });
-
       if (response.data && response.data.share_card_base64) {
-        // Save to gallery and share
         const fileUri = FileSystem.documentDirectory + `findmeai_${persona.id}.png`;
         await FileSystem.writeAsStringAsync(fileUri, response.data.share_card_base64, {
           encoding: FileSystem.EncodingType.Base64,
         });
-        
-        // Request permission and save
         const { status } = await MediaLibrary.requestPermissionsAsync();
         if (status === 'granted') {
           await MediaLibrary.saveToLibraryAsync(fileUri);
         }
-
-        // Share
         await Share.share({
           message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
         });
       }
     } catch (error) {
       console.error('Error generating share card:', error);
-      // Fallback to text share
       await Share.share({
         message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
       });
     } finally {
       setGeneratingShareCard(false);
+    }
+  };
+
+  const handleRegenerate = async () => {
+    // TODO: Implement credit check
+    // For now, go back to camera to start over
+    setRegenerating(true);
+    try {
+      // Clear stored data and go to camera
+      await AsyncStorage.removeItem('selfie');
+      await AsyncStorage.removeItem('selfie_all');
+      router.replace('/camera');
+    } catch (error) {
+      console.error('Error regenerating:', error);
+    } finally {
+      setRegenerating(false);
     }
   };
 
@@ -207,19 +220,19 @@ export default function ResultsScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={createAnother}>
             <Ionicons name="close" size={28} color={Colors.text} />
           </TouchableOpacity>
-          <View style={styles.levelBadge}>
-            <Text style={styles.levelText}>LVL {personaTitle.level}/{personaTitle.maxLevel}</Text>
-          </View>
+          
+          {/* Level Badge - Tappable */}
+          <TouchableOpacity style={styles.levelBadge} onPress={() => setShowLevelInfo(true)}>
+            <Text style={styles.levelText}>Seviye {personaTitle.level} ({levelName})</Text>
+            <Ionicons name="information-circle-outline" size={16} color="#CC99FF" style={{ marginLeft: 6 }} />
+          </TouchableOpacity>
+          
           <View style={{ width: 44 }} />
         </View>
 
@@ -227,19 +240,12 @@ export default function ResultsScreen() {
           {/* Avatar with glow */}
           <View style={styles.avatarContainer}>
             <View style={styles.avatarGlow} />
-            <LinearGradient
-              colors={[Colors.primary, Colors.gradient2, Colors.secondary]}
-              style={styles.avatarGradient}
-            >
-              <Image
-                source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }}
-                style={styles.avatar}
-                resizeMode="cover"
-              />
+            <LinearGradient colors={[Colors.primary, Colors.gradient2, Colors.secondary]} style={styles.avatarGradient}>
+              <Image source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }} style={styles.avatar} resizeMode="cover" />
             </LinearGradient>
           </View>
 
-          {/* Persona Name + Title + Level */}
+          {/* Persona Name + Title */}
           <View style={styles.nameContainer}>
             <Text style={styles.personaName}>{persona.persona_name}</Text>
             <View style={styles.titleRow}>
@@ -272,10 +278,7 @@ export default function ResultsScreen() {
 
           {/* Personal Motto Box */}
           <View style={styles.mottoContainer}>
-            <LinearGradient
-              colors={['rgba(255,51,102,0.15)', 'rgba(153,51,255,0.15)']}
-              style={styles.mottoGradient}
-            >
+            <LinearGradient colors={['rgba(255,51,102,0.15)', 'rgba(153,51,255,0.15)']} style={styles.mottoGradient}>
               <View style={styles.mottoHeader}>
                 <Ionicons name="flame" size={20} color={Colors.primary} />
                 <Text style={styles.mottoLabel}>KİŞİSEL MOTTO</Text>
@@ -293,19 +296,9 @@ export default function ResultsScreen() {
 
         {/* Actions */}
         <View style={styles.actions}>
-          {/* Main Share Button - Premium Look */}
-          <TouchableOpacity
-            style={styles.mainShareButton}
-            onPress={handleShareCard}
-            disabled={generatingShareCard}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={['#FF3366', '#FF6B6B', '#FF3366']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.mainShareGradient}
-            >
+          {/* Main Share Button */}
+          <TouchableOpacity style={styles.mainShareButton} onPress={handleShareCard} disabled={generatingShareCard} activeOpacity={0.85}>
+            <LinearGradient colors={['#FF3366', '#FF6B6B', '#FF3366']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.mainShareGradient}>
               {generatingShareCard ? (
                 <ActivityIndicator size="small" color={Colors.text} />
               ) : (
@@ -320,12 +313,20 @@ export default function ResultsScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Secondary: Create Another */}
-          <TouchableOpacity
-            style={styles.createAnotherButton}
-            onPress={createAnother}
-            activeOpacity={0.8}
-          >
+          {/* Regenerate Button */}
+          <TouchableOpacity style={styles.regenerateButton} onPress={handleRegenerate} disabled={regenerating} activeOpacity={0.8}>
+            {regenerating ? (
+              <ActivityIndicator size="small" color={Colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="refresh" size={20} color={Colors.primary} />
+                <Text style={styles.regenerateText}>Beğenmedim → Yeniden Üret</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {/* Create Another */}
+          <TouchableOpacity style={styles.createAnotherButton} onPress={createAnother} activeOpacity={0.8}>
             <Ionicons name="sparkles" size={20} color={Colors.textSecondary} />
             <Text style={styles.createAnotherText}>Yeni Persona Oluştur</Text>
           </TouchableOpacity>
@@ -335,302 +336,124 @@ export default function ResultsScreen() {
         <View style={styles.bottomLogo}>
           <Text style={styles.logoText}>FIND ME AI</Text>
         </View>
-
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Level Info Bottom Sheet */}
+      <Modal visible={showLevelInfo} transparent animationType="slide">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowLevelInfo(false)}>
+          <View style={styles.bottomSheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>🏆 Persona Seviyesi Nedir?</Text>
+            
+            <View style={styles.sheetContent}>
+              <Text style={styles.sheetDescription}>
+                Persona seviyesi, alter egonuzun "olgunluk" ve "derinlik" skorudur. Quiz cevaplarınız ve kişilik analizine göre hesaplanır.
+              </Text>
+              
+              <View style={styles.levelExamples}>
+                <View style={styles.levelExample}>
+                  <Text style={styles.levelNum}>1-4</Text>
+                  <Text style={styles.levelDesc}>Başlangıç (Çaylak → Aday)</Text>
+                </View>
+                <View style={styles.levelExample}>
+                  <Text style={styles.levelNum}>5-8</Text>
+                  <Text style={styles.levelDesc}>Gelişmiş (Yetkin → Virtuoso)</Text>
+                </View>
+                <View style={styles.levelExample}>
+                  <Text style={styles.levelNum}>9-12</Text>
+                  <Text style={styles.levelDesc}>Efsanevi (Efsane → Tanrısal)</Text>
+                </View>
+              </View>
+
+              <View style={styles.howToIncrease}>
+                <Text style={styles.howToTitle}>📈 Nasıl Artırılır?</Text>
+                <Text style={styles.howToItem}>• Farklı temaları deneyin</Text>
+                <Text style={styles.howToItem}>• Daha detaylı quiz cevapları</Text>
+                <Text style={styles.howToItem}>• Kaliteli selfie (3 açı önerilir)</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.sheetCloseBtn} onPress={() => setShowLevelInfo(false)}>
+              <Text style={styles.sheetCloseBtnText}>Anladım</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 10,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.surfaceLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  levelBadge: {
-    backgroundColor: 'rgba(153,51,255,0.3)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(153,51,255,0.5)',
-  },
-  levelText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#CC99FF',
-    letterSpacing: 1,
-  },
-  avatarContainer: {
-    alignItems: 'center',
-    marginVertical: 20,
-    position: 'relative',
-  },
-  avatarGlow: {
-    position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: Colors.primary,
-    opacity: 0.2,
-    top: -10,
-  },
-  avatarGradient: {
-    padding: 5,
-    borderRadius: 130,
-  },
-  avatar: {
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: Colors.surface,
-  },
-  nameContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 24,
-  },
-  personaName: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: Colors.text,
-    textAlign: 'center',
-    marginBottom: 8,
-    textShadowColor: 'rgba(255,51,102,0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 10,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  personaTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.secondary,
-  },
-  themeBadge: {
-    backgroundColor: Colors.surfaceLight,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  themeText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  statsSection: {
-    paddingHorizontal: 24,
-    marginBottom: 28,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.text,
-    marginBottom: 16,
-    letterSpacing: 1,
-  },
-  statContainer: {
-    marginBottom: 16,
-  },
-  statHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  statValue: {
-    fontSize: 14,
-    color: Colors.text,
-    fontWeight: '700',
-  },
-  statBarBg: {
-    height: 10,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 5,
-    overflow: 'hidden',
-  },
-  statBarFill: {
-    height: '100%',
-    borderRadius: 5,
-  },
-  traitsContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 28,
-  },
-  traitsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  traitChip: {
-    backgroundColor: Colors.surfaceLight,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  traitChipText: {
-    fontSize: 14,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  mottoContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 28,
-  },
-  mottoGradient: {
-    padding: 20,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,51,102,0.3)',
-  },
-  mottoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  mottoLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 1,
-  },
-  mottoText: {
-    fontSize: 20,
-    color: Colors.text,
-    fontStyle: 'italic',
-    lineHeight: 30,
-    fontWeight: '500',
-  },
-  bioContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  bioText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    lineHeight: 26,
-  },
-  actions: {
-    paddingHorizontal: 24,
-    gap: 16,
-  },
-  mainShareButton: {
-    borderRadius: 30,
-    overflow: 'hidden',
-    elevation: 12,
-    shadowColor: '#FF3366',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-  },
-  mainShareGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 32,
-    gap: 16,
-  },
-  shareTextContainer: {
-    alignItems: 'flex-start',
-  },
-  mainShareText: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.text,
-    letterSpacing: 2,
-  },
-  shareSubtext: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
-  },
-  createAnotherButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 8,
-  },
-  createAnotherText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: Colors.textSecondary,
-  },
-  bottomLogo: {
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  logoText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.border,
-    letterSpacing: 4,
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 16,
-  },
-  errorContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  errorText: {
-    fontSize: 18,
-    color: Colors.textSecondary,
-    marginBottom: 24,
-  },
-  homeButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 25,
-  },
-  homeButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  scrollView: { flex: 1 },
+  scrollContent: { paddingBottom: 20 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 10 },
+  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center' },
+  levelBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(153,51,255,0.3)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(153,51,255,0.5)' },
+  levelText: { fontSize: 13, fontWeight: '700', color: '#CC99FF' },
+  avatarContainer: { alignItems: 'center', marginVertical: 20, position: 'relative' },
+  avatarGlow: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: Colors.primary, opacity: 0.2, top: -10 },
+  avatarGradient: { padding: 5, borderRadius: 130 },
+  avatar: { width: 250, height: 250, borderRadius: 125, backgroundColor: Colors.surface },
+  nameContainer: { alignItems: 'center', marginBottom: 24, paddingHorizontal: 24 },
+  personaName: { fontSize: 34, fontWeight: '900', color: Colors.text, textAlign: 'center', marginBottom: 8, textShadowColor: 'rgba(255,51,102,0.3)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  personaTitle: { fontSize: 18, fontWeight: '600', color: Colors.secondary },
+  themeBadge: { backgroundColor: Colors.surfaceLight, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  themeText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
+  statsSection: { paddingHorizontal: 24, marginBottom: 28 },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: Colors.text, marginBottom: 16, letterSpacing: 1 },
+  statContainer: { marginBottom: 16 },
+  statHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  statLabel: { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
+  statValue: { fontSize: 14, color: Colors.text, fontWeight: '700' },
+  statBarBg: { height: 10, backgroundColor: Colors.surfaceLight, borderRadius: 5, overflow: 'hidden' },
+  statBarFill: { height: '100%', borderRadius: 5 },
+  traitsContainer: { paddingHorizontal: 24, marginBottom: 28 },
+  traitsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  traitChip: { backgroundColor: Colors.surfaceLight, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },
+  traitChipText: { fontSize: 14, color: Colors.text, fontWeight: '500' },
+  mottoContainer: { paddingHorizontal: 24, marginBottom: 28 },
+  mottoGradient: { padding: 20, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,51,102,0.3)' },
+  mottoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  mottoLabel: { fontSize: 12, fontWeight: '700', color: Colors.primary, letterSpacing: 1 },
+  mottoText: { fontSize: 20, color: Colors.text, fontStyle: 'italic', lineHeight: 30, fontWeight: '500' },
+  bioContainer: { paddingHorizontal: 24, marginBottom: 32 },
+  bioText: { fontSize: 16, color: Colors.textSecondary, lineHeight: 26 },
+  actions: { paddingHorizontal: 24, gap: 12 },
+  mainShareButton: { borderRadius: 30, overflow: 'hidden', elevation: 12, shadowColor: '#FF3366', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12 },
+  mainShareGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 20, paddingHorizontal: 32, gap: 16 },
+  shareTextContainer: { alignItems: 'flex-start' },
+  mainShareText: { fontSize: 20, fontWeight: '800', color: Colors.text, letterSpacing: 2 },
+  shareSubtext: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  regenerateButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 25, borderWidth: 2, borderColor: Colors.primary, gap: 8 },
+  regenerateText: { fontSize: 15, fontWeight: '600', color: Colors.primary },
+  createAnotherButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 8 },
+  createAnotherText: { fontSize: 15, fontWeight: '500', color: Colors.textSecondary },
+  bottomLogo: { alignItems: 'center', marginTop: 32 },
+  logoText: { fontSize: 12, fontWeight: '600', color: Colors.border, letterSpacing: 4 },
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
+  errorContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  errorText: { fontSize: 18, color: Colors.textSecondary, marginBottom: 24 },
+  homeButton: { backgroundColor: Colors.primary, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 25 },
+  homeButtonText: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  
+  // Modal styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  bottomSheet: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  sheetHandle: { width: 40, height: 4, backgroundColor: Colors.border, borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
+  sheetTitle: { fontSize: 22, fontWeight: '700', color: Colors.text, textAlign: 'center', marginBottom: 20 },
+  sheetContent: { gap: 20 },
+  sheetDescription: { fontSize: 15, color: Colors.textSecondary, lineHeight: 24, textAlign: 'center' },
+  levelExamples: { gap: 12 },
+  levelExample: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surfaceLight, padding: 12, borderRadius: 12 },
+  levelNum: { fontSize: 18, fontWeight: '700', color: Colors.primary, width: 50 },
+  levelDesc: { fontSize: 14, color: Colors.text, flex: 1 },
+  howToIncrease: { backgroundColor: 'rgba(0,255,255,0.1)', padding: 16, borderRadius: 12 },
+  howToTitle: { fontSize: 16, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  howToItem: { fontSize: 14, color: Colors.textSecondary, marginBottom: 6 },
+  sheetCloseBtn: { backgroundColor: Colors.primary, paddingVertical: 16, borderRadius: 25, marginTop: 20 },
+  sheetCloseBtnText: { fontSize: 16, fontWeight: '700', color: Colors.text, textAlign: 'center' },
 });
