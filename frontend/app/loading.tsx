@@ -85,10 +85,22 @@ export default function LoadingScreen() {
 
       const quizAnswers = JSON.parse(quizAnswersStr);
       const language = i18n.language;
+      
+      // Get similarity level and additional photos
+      const similarityLevel = await AsyncStorage.getItem('similarity_level') || 'realistic';
+      const additionalPhotosStr = await AsyncStorage.getItem('selfie_all');
+      let additionalPhotos: string[] = [];
+      if (additionalPhotosStr) {
+        try {
+          additionalPhotos = JSON.parse(additionalPhotosStr);
+        } catch (e) {
+          console.log('Could not parse additional photos');
+        }
+      }
 
       setLoadingText(t('loading.generating'));
 
-      // Call API with language
+      // Call API with all parameters
       const response = await axios.post(
         `${BACKEND_URL}/api/generate-persona`,
         {
@@ -96,6 +108,8 @@ export default function LoadingScreen() {
           quiz_answers: quizAnswers,
           persona_theme: selectedPersona,
           language: language,
+          similarity_level: similarityLevel,
+          additional_photos: additionalPhotos.length > 1 ? additionalPhotos : null,
         },
         {
           timeout: 120000, // 2 minute timeout
