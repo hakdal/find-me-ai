@@ -72,6 +72,7 @@ class GeneratePersonaRequest(BaseModel):
     language: str = 'tr'  # 'tr' or 'en'
     similarity_level: str = 'realistic'  # 'realistic', 'stylized', 'creative'
     additional_photos: Optional[List[str]] = None  # Additional selfie angles
+    user_gender: Optional[str] = None  # 'female', 'male', or None for auto-detect
 
 class GeneratedPersona(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
