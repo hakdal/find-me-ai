@@ -133,6 +133,8 @@ export default function CameraScreen() {
         await AsyncStorage.setItem('selfie_all', JSON.stringify(capturedImages));
         await AsyncStorage.setItem('similarity_level', similarityLevel);
         await AsyncStorage.setItem('photo_mode', photoMode);
+        // Save gender (null if auto)
+        await AsyncStorage.setItem('user_gender', userGender === 'auto' ? '' : userGender);
         router.push('/quiz');
       } catch (error) {
         console.error('Error saving selfie:', error);
