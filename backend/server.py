@@ -55,6 +55,8 @@ class GeneratePersonaRequest(BaseModel):
     quiz_answers: List[QuizAnswer]
     persona_theme: str
     language: str = 'tr'  # 'tr' or 'en'
+    similarity_level: str = 'realistic'  # 'realistic', 'stylized', 'creative'
+    additional_photos: Optional[List[str]] = None  # Additional selfie angles
 
 class GeneratedPersona(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
