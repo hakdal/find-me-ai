@@ -88,6 +88,9 @@ class GeneratedPersona(BaseModel):
     mode_used: str = '1-photo'  # '1-photo' or '3-photo'
     provider: str = 'replicate'  # 'replicate' or 'openai'
     attempts: int = 1
+    detected_gender: Optional[str] = None  # 'female', 'male', 'unknown'
+    gender_confidence: Optional[float] = None  # 0.0 to 1.0
+    style_used: Optional[str] = None  # Which style was actually used
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ShareCardRequest(BaseModel):
