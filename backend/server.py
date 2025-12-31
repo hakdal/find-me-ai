@@ -344,22 +344,29 @@ Provide all output in English.
         
         # Detect gender from image if not provided by user
         detected_gender = request.user_gender
+        gender_confidence = 1.0 if request.user_gender else 0.0
+        
         if not detected_gender:
             gender_info = detect_gender_from_image(request.selfie_base64)
             detected_gender = gender_info['gender']
+            gender_confidence = gender_info['confidence']
             logger.info(f"Gender detection result: {gender_info}")
         
         # Choose appropriate style based on gender
         if theme_config['prompt_override']:
             style_desc = theme_config['prompt_override']
+            style_used = 'custom_override'
         elif detected_gender == 'female' and 'style_female' in theme_config:
             style_desc = theme_config['style_female']
+            style_used = 'female_specific'
             logger.info(f"Using female-specific style for {request.persona_theme}")
         elif detected_gender == 'male' and 'style_male' in theme_config:
             style_desc = theme_config['style_male']
+            style_used = 'male_specific'
             logger.info(f"Using male-specific style for {request.persona_theme}")
         else:
             style_desc = theme_config['style']
+            style_used = 'default'
             logger.info(f"Using default style for {request.persona_theme} (gender: {detected_gender})")
         
         # InstantID parameters based on similarity level
