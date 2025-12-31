@@ -35,7 +35,6 @@ interface PersonaData {
   created_at: string;
 }
 
-// Persona titles based on theme
 const PERSONA_TITLES: Record<string, { title: string; level: number; maxLevel: number }> = {
   'Midnight CEO': { title: 'Gölgelerin Lideri', level: 9, maxLevel: 12 },
   'Dark Charmer': { title: 'Büyülü Karizmatik', level: 8, maxLevel: 12 },
@@ -43,7 +42,6 @@ const PERSONA_TITLES: Record<string, { title: string; level: number; maxLevel: n
   'Glam Diva': { title: 'Işıltının Kraliçesi', level: 7, maxLevel: 12 },
 };
 
-// Stat bar component
 const StatBar = ({ label, value, color, delay }: { label: string; value: number; color: string; delay: number }) => {
   const animValue = useRef(new Animated.Value(0)).current;
   
@@ -82,7 +80,6 @@ export default function ResultsScreen() {
   const [generatingShareCard, setGeneratingShareCard] = useState(false);
   const router = useRouter();
   
-  // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
 
@@ -92,7 +89,6 @@ export default function ResultsScreen() {
 
   useEffect(() => {
     if (persona) {
-      // Entrance animation
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -119,15 +115,12 @@ export default function ResultsScreen() {
     }
   };
 
-  // Generate stats from traits (deterministic based on persona)
   const generateStats = () => {
     if (!persona) return { leadership: 50, empathy: 50, risk: 50 };
-    
     const hash = persona.id.split('').reduce((a, b) => {
       a = ((a << 5) - a) + b.charCodeAt(0);
       return a & a;
     }, 0);
-    
     return {
       leadership: 60 + (Math.abs(hash) % 35),
       empathy: 55 + (Math.abs(hash >> 4) % 40),
@@ -140,36 +133,26 @@ export default function ResultsScreen() {
 
   const handleShareCard = async () => {
     if (!persona) return;
-
     try {
       setGeneratingShareCard(true);
-      
-      // Generate share card from backend
       const response = await axios.post(`${BACKEND_URL}/api/generate-share-card`, {
         persona_id: persona.id,
       });
-
       if (response.data && response.data.share_card_base64) {
-        // Save to gallery and share
         const fileUri = FileSystem.documentDirectory + `findmeai_${persona.id}.png`;
         await FileSystem.writeAsStringAsync(fileUri, response.data.share_card_base64, {
           encoding: FileSystem.EncodingType.Base64,
         });
-        
-        // Request permission and save
         const { status } = await MediaLibrary.requestPermissionsAsync();
         if (status === 'granted') {
           await MediaLibrary.saveToLibraryAsync(fileUri);
         }
-
-        // Share
         await Share.share({
           message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
         });
       }
     } catch (error) {
       console.error('Error generating share card:', error);
-      // Fallback to text share
       await Share.share({
         message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
       });
@@ -207,12 +190,7 @@ export default function ResultsScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={createAnother}>
             <Ionicons name="close" size={28} color={Colors.text} />
@@ -224,22 +202,13 @@ export default function ResultsScreen() {
         </View>
 
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          {/* Avatar with glow */}
           <View style={styles.avatarContainer}>
             <View style={styles.avatarGlow} />
-            <LinearGradient
-              colors={[Colors.primary, Colors.gradient2, Colors.secondary]}
-              style={styles.avatarGradient}
-            >
-              <Image
-                source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }}
-                style={styles.avatar}
-                resizeMode="cover"
-              />
+            <LinearGradient colors={[Colors.primary, Colors.gradient2, Colors.secondary]} style={styles.avatarGradient}>
+              <Image source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }} style={styles.avatar} resizeMode="cover" />
             </LinearGradient>
           </View>
 
-          {/* Persona Name + Title + Level */}
           <View style={styles.nameContainer}>
             <Text style={styles.personaName}>{persona.persona_name}</Text>
             <View style={styles.titleRow}>
@@ -250,7 +219,6 @@ export default function ResultsScreen() {
             </View>
           </View>
 
-          {/* Stats Bars */}
           <View style={styles.statsSection}>
             <Text style={styles.sectionTitle}>✨ KİŞİLİK ANALİZİ</Text>
             <StatBar label="Liderlik" value={stats.leadership} color="#FF3366" delay={200} />
@@ -258,7 +226,6 @@ export default function ResultsScreen() {
             <StatBar label="Risk Alma" value={stats.risk} color="#9933FF" delay={600} />
           </View>
 
-          {/* Traits */}
           <View style={styles.traitsContainer}>
             <Text style={styles.sectionTitle}>🔥 ÖZELLİKLER</Text>
             <View style={styles.traitsGrid}>
@@ -270,12 +237,8 @@ export default function ResultsScreen() {
             </View>
           </View>
 
-          {/* Personal Motto Box */}
           <View style={styles.mottoContainer}>
-            <LinearGradient
-              colors={['rgba(255,51,102,0.15)', 'rgba(153,51,255,0.15)']}
-              style={styles.mottoGradient}
-            >
+            <LinearGradient colors={['rgba(255,51,102,0.15)', 'rgba(153,51,255,0.15)']} style={styles.mottoGradient}>
               <View style={styles.mottoHeader}>
                 <Ionicons name="flame" size={20} color={Colors.primary} />
                 <Text style={styles.mottoLabel}>KİŞİSEL MOTTO</Text>
@@ -284,28 +247,15 @@ export default function ResultsScreen() {
             </LinearGradient>
           </View>
 
-          {/* Bio */}
           <View style={styles.bioContainer}>
             <Text style={styles.sectionTitle}>📖 HİKAYEN</Text>
             <Text style={styles.bioText}>{persona.bio_paragraph}</Text>
           </View>
         </Animated.View>
 
-        {/* Actions */}
         <View style={styles.actions}>
-          {/* Main Share Button - Premium Look */}
-          <TouchableOpacity
-            style={styles.mainShareButton}
-            onPress={handleShareCard}
-            disabled={generatingShareCard}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={['#FF3366', '#FF6B6B', '#FF3366']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.mainShareGradient}
-            >
+          <TouchableOpacity style={styles.mainShareButton} onPress={handleShareCard} disabled={generatingShareCard} activeOpacity={0.85}>
+            <LinearGradient colors={['#FF3366', '#FF6B6B', '#FF3366']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.mainShareGradient}>
               {generatingShareCard ? (
                 <ActivityIndicator size="small" color={Colors.text} />
               ) : (
@@ -320,22 +270,15 @@ export default function ResultsScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Secondary: Create Another */}
-          <TouchableOpacity
-            style={styles.createAnotherButton}
-            onPress={createAnother}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.createAnotherButton} onPress={createAnother} activeOpacity={0.8}>
             <Ionicons name="sparkles" size={20} color={Colors.textSecondary} />
             <Text style={styles.createAnotherText}>Yeni Persona Oluştur</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Bottom Logo */}
         <View style={styles.bottomLogo}>
           <Text style={styles.logoText}>FIND ME AI</Text>
         </View>
-
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -343,294 +286,56 @@ export default function ResultsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 50,
-    paddingBottom: 10,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.surfaceLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  levelBadge: {
-    backgroundColor: 'rgba(153,51,255,0.3)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(153,51,255,0.5)',
-  },
-  levelText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#CC99FF',
-    letterSpacing: 1,
-  },
-  avatarContainer: {
-    alignItems: 'center',
-    marginVertical: 20,
-    position: 'relative',
-  },
-  avatarGlow: {
-    position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    backgroundColor: Colors.primary,
-    opacity: 0.2,
-    top: -10,
-  },
-  avatarGradient: {
-    padding: 5,
-    borderRadius: 130,
-  },
-  avatar: {
-    width: 250,
-    height: 250,
-    borderRadius: 125,
-    backgroundColor: Colors.surface,
-  },
-  nameContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 24,
-  },
-  personaName: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: Colors.text,
-    textAlign: 'center',
-    marginBottom: 8,
-    textShadowColor: 'rgba(255,51,102,0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 10,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  personaTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.secondary,
-  },
-  themeBadge: {
-    backgroundColor: Colors.surfaceLight,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  themeText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  statsSection: {
-    paddingHorizontal: 24,
-    marginBottom: 28,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.text,
-    marginBottom: 16,
-    letterSpacing: 1,
-  },
-  statContainer: {
-    marginBottom: 16,
-  },
-  statHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    fontWeight: '500',
-  },
-  statValue: {
-    fontSize: 14,
-    color: Colors.text,
-    fontWeight: '700',
-  },
-  statBarBg: {
-    height: 10,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: 5,
-    overflow: 'hidden',
-  },
-  statBarFill: {
-    height: '100%',
-    borderRadius: 5,
-  },
-  traitsContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 28,
-  },
-  traitsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  traitChip: {
-    backgroundColor: Colors.surfaceLight,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  traitChipText: {
-    fontSize: 14,
-    color: Colors.text,
-    fontWeight: '500',
-  },
-  mottoContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 28,
-  },
-  mottoGradient: {
-    padding: 20,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,51,102,0.3)',
-  },
-  mottoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  mottoLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 1,
-  },
-  mottoText: {
-    fontSize: 20,
-    color: Colors.text,
-    fontStyle: 'italic',
-    lineHeight: 30,
-    fontWeight: '500',
-  },
-  bioContainer: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  bioText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    lineHeight: 26,
-  },
-  actions: {
-    paddingHorizontal: 24,
-    gap: 16,
-  },
-  mainShareButton: {
-    borderRadius: 30,
-    overflow: 'hidden',
-    elevation: 12,
-    shadowColor: '#FF3366',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-  },
-  mainShareGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 32,
-    gap: 16,
-  },
-  shareTextContainer: {
-    alignItems: 'flex-start',
-  },
-  mainShareText: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.text,
-    letterSpacing: 2,
-  },
-  shareSubtext: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
-  },
-  createAnotherButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 8,
-  },
-  createAnotherText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: Colors.textSecondary,
-  },
-  bottomLogo: {
-    alignItems: 'center',
-    marginTop: 32,
-  },
-  logoText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.border,
-    letterSpacing: 4,
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: Colors.textSecondary,
-    marginTop: 16,
-  },
-  errorContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  errorText: {
-    fontSize: 18,
-    color: Colors.textSecondary,
-    marginBottom: 24,
-  },
-  homeButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 25,
-  },
-  homeButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  scrollView: { flex: 1 },
+  scrollContent: { paddingBottom: 20 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 50, paddingBottom: 10 },
+  backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center' },
+  levelBadge: { backgroundColor: 'rgba(153,51,255,0.3)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(153,51,255,0.5)' },
+  levelText: { fontSize: 14, fontWeight: '700', color: '#CC99FF', letterSpacing: 1 },
+  avatarContainer: { alignItems: 'center', marginVertical: 20, position: 'relative' },
+  avatarGlow: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: Colors.primary, opacity: 0.2, top: -10 },
+  avatarGradient: { padding: 5, borderRadius: 130 },
+  avatar: { width: 250, height: 250, borderRadius: 125, backgroundColor: Colors.surface },
+  nameContainer: { alignItems: 'center', marginBottom: 24, paddingHorizontal: 24 },
+  personaName: { fontSize: 34, fontWeight: '900', color: Colors.text, textAlign: 'center', marginBottom: 8, textShadowColor: 'rgba(255,51,102,0.3)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  personaTitle: { fontSize: 18, fontWeight: '600', color: Colors.secondary },
+  themeBadge: { backgroundColor: Colors.surfaceLight, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  themeText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
+  statsSection: { paddingHorizontal: 24, marginBottom: 28 },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: Colors.text, marginBottom: 16, letterSpacing: 1 },
+  statContainer: { marginBottom: 16 },
+  statHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  statLabel: { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
+  statValue: { fontSize: 14, color: Colors.text, fontWeight: '700' },
+  statBarBg: { height: 10, backgroundColor: Colors.surfaceLight, borderRadius: 5, overflow: 'hidden' },
+  statBarFill: { height: '100%', borderRadius: 5 },
+  traitsContainer: { paddingHorizontal: 24, marginBottom: 28 },
+  traitsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  traitChip: { backgroundColor: Colors.surfaceLight, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },
+  traitChipText: { fontSize: 14, color: Colors.text, fontWeight: '500' },
+  mottoContainer: { paddingHorizontal: 24, marginBottom: 28 },
+  mottoGradient: { padding: 20, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,51,102,0.3)' },
+  mottoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  mottoLabel: { fontSize: 12, fontWeight: '700', color: Colors.primary, letterSpacing: 1 },
+  mottoText: { fontSize: 20, color: Colors.text, fontStyle: 'italic', lineHeight: 30, fontWeight: '500' },
+  bioContainer: { paddingHorizontal: 24, marginBottom: 32 },
+  bioText: { fontSize: 16, color: Colors.textSecondary, lineHeight: 26 },
+  actions: { paddingHorizontal: 24, gap: 16 },
+  mainShareButton: { borderRadius: 30, overflow: 'hidden', elevation: 12, shadowColor: '#FF3366', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12 },
+  mainShareGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 20, paddingHorizontal: 32, gap: 16 },
+  shareTextContainer: { alignItems: 'flex-start' },
+  mainShareText: { fontSize: 20, fontWeight: '800', color: Colors.text, letterSpacing: 2 },
+  shareSubtext: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  createAnotherButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 8 },
+  createAnotherText: { fontSize: 15, fontWeight: '500', color: Colors.textSecondary },
+  bottomLogo: { alignItems: 'center', marginTop: 32 },
+  logoText: { fontSize: 12, fontWeight: '600', color: Colors.border, letterSpacing: 4 },
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
+  errorContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  errorText: { fontSize: 18, color: Colors.textSecondary, marginBottom: 24 },
+  homeButton: { backgroundColor: Colors.primary, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 25 },
+  homeButtonText: { fontSize: 16, fontWeight: '600', color: Colors.text },
 });
