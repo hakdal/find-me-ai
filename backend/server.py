@@ -119,29 +119,82 @@ class PricingConfig(BaseModel):
     persona_all_try: float = 299.0
     persona_unlimited_try: float = 149.0
 
-# Persona themes and their styles
+# Gender-aware persona themes with female and male variants
 PERSONA_THEMES = {
     "Midnight CEO": {
-        "style": "powerful business leader, sophisticated dark suit, confident pose, luxurious office setting, dramatic lighting, cinematic portrait",
+        "style": "confident leader, powerful executive aura, sophisticated attire, dramatic lighting, cinematic portrait, luxury setting",
+        "style_female": "confident female leader, powerful executive aura, sophisticated elegant attire, dramatic lighting, cinematic portrait, luxury setting, feminine power",
+        "style_male": "confident male leader, powerful executive aura, sophisticated suit, dramatic lighting, cinematic portrait, luxury setting, masculine presence",
         "enabled": True,
         "prompt_override": None
     },
     "Dark Charmer": {
         "style": "mysterious and charismatic, elegant dark fashion, intense gaze, moody atmosphere, artistic portrait, cinematic lighting",
+        "style_female": "mysterious and charismatic woman, elegant dark fashion, intense feminine gaze, moody atmosphere, artistic portrait, cinematic lighting, seductive elegance",
+        "style_male": "mysterious and charismatic man, elegant dark fashion, intense masculine gaze, moody atmosphere, artistic portrait, cinematic lighting, charming presence",
         "enabled": True,
         "prompt_override": None
     },
     "Alpha Strategist": {
         "style": "strategic thinker, sharp professional attire, commanding presence, modern setting, confident expression, high-quality portrait",
+        "style_female": "strategic thinker, sharp professional feminine attire, commanding female presence, modern setting, confident expression, high-quality portrait, power woman",
+        "style_male": "strategic thinker, sharp professional suit, commanding male presence, modern setting, confident expression, high-quality portrait, business leader",
         "enabled": True,
         "prompt_override": None
     },
     "Glam Diva": {
         "style": "glamorous and stylish, fashion-forward outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting",
+        "style_female": "glamorous diva, fashion-forward feminine outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting, feminine beauty",
+        "style_male": "stylish icon, fashion-forward modern outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting, handsome presence",
         "enabled": True,
         "prompt_override": None
     }
 }
+
+# Helper function to detect gender from image
+def detect_gender_from_image(base64_image: str) -> dict:
+    """
+    Detect gender and approximate age from a base64 encoded image.
+    Returns: {'gender': 'female'/'male', 'age': int, 'confidence': float}
+    """
+    if not DEEPFACE_AVAILABLE:
+        logger.warning("DeepFace not available, returning default gender")
+        return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
+    
+    try:
+        # Decode base64 image
+        image_data = base64.b64decode(base64_image)
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            logger.error("Could not decode image for gender detection")
+            return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
+        
+        # Analyze face
+        analysis = DeepFace.analyze(img, actions=['gender', 'age'], enforce_detection=False)
+        
+        if analysis and len(analysis) > 0:
+            result = analysis[0] if isinstance(analysis, list) else analysis
+            dominant_gender = result.get('dominant_gender', 'unknown').lower()
+            # Map 'Woman' -> 'female', 'Man' -> 'male'
+            if dominant_gender in ['woman', 'female']:
+                gender = 'female'
+            elif dominant_gender in ['man', 'male']:
+                gender = 'male'
+            else:
+                gender = 'unknown'
+            
+            age = result.get('age', 25)
+            gender_probs = result.get('gender', {})
+            confidence = gender_probs.get('Woman', 0.5) if gender == 'female' else gender_probs.get('Man', 0.5)
+            
+            logger.info(f"Gender detected: {gender}, age: {age}, confidence: {confidence}")
+            return {'gender': gender, 'age': age, 'confidence': confidence}
+    except Exception as e:
+        logger.error(f"Error in gender detection: {str(e)}")
+    
+    return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
 
 @api_router.get("/")
 async def root():
