@@ -499,7 +499,10 @@ Focus on face and upper body.
             similarity_level=request.similarity_level,
             mode_used=mode_used,
             provider=provider,
-            attempts=attempts
+            attempts=attempts,
+            detected_gender=detected_gender,
+            gender_confidence=gender_confidence,
+            style_used=style_used
         )
         
         # Save to database
