@@ -13,6 +13,8 @@ from datetime import datetime
 import base64
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
+import replicate
+import httpx
 
 # Import Emergent integrations
 from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -28,6 +30,9 @@ db = client[os.environ['DB_NAME']]
 
 # Emergent LLM Key
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+
+# Replicate API Token
+REPLICATE_API_TOKEN = os.environ.get('REPLICATE_API_TOKEN', '')
 
 # Admin API Key (simple authentication)
 ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY', 'admin_secret_key_change_me')
