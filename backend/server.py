@@ -476,25 +476,42 @@ Provide all output in English.
         
         # Fallback to OpenAI if Replicate failed or not configured
         if not avatar_base64:
-            logger.info("Using OpenAI fallback for avatar generation")
+            logger.info(f"Using OpenAI fallback for avatar generation (gender: {detected_gender})")
             provider = 'openai'
             
             image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
             
-            similarity_modifiers = {
-                'realistic': "Create a photorealistic portrait that looks like a real specific person. Professional headshot quality.",
-                'stylized': "Create a semi-stylized artistic portrait with cinematic lighting.",
-                'creative': "Create a fully artistic, creative portrait with fantasy elements."
+            # Gender-specific base descriptions
+            gender_base = {
+                'female': "Create a portrait of a woman/female. Feminine features, soft facial structure.",
+                'male': "Create a portrait of a man/male. Masculine features, strong facial structure.",
+                'unknown': "Create a portrait of a person."
             }
             
+            similarity_modifiers = {
+                'realistic': "Photorealistic portrait that looks like a real specific person. Professional headshot quality. Same facial features as the reference.",
+                'stylized': "Semi-stylized artistic portrait with cinematic lighting. Recognizable face.",
+                'creative': "Artistic, creative portrait with fantasy elements."
+            }
+            
+            gender_instructions = gender_base.get(detected_gender, gender_base['unknown'])
+            
+            # Build prompt with strict gender enforcement
             image_prompt = f"""
+{gender_instructions}
 {similarity_modifiers.get(request.similarity_level, similarity_modifiers['realistic'])}
 
 Style: {style_desc}
 Portrait orientation (9:16 aspect ratio).
 High quality studio lighting, clean soft background, social media ready.
 Focus on face and upper body.
+
+CRITICAL: The person in this image must be {detected_gender if detected_gender != 'unknown' else 'accurately represented'}.
+{'Do NOT create a male/masculine image. This must be a female/woman.' if detected_gender == 'female' else ''}
+{'Do NOT create a female/feminine image. This must be a male/man.' if detected_gender == 'male' else ''}
 """
+            
+            logger.info(f"OpenAI prompt (gender={detected_gender}): {image_prompt[:150]}...")
             
             images = await image_gen.generate_images(
                 prompt=image_prompt,
