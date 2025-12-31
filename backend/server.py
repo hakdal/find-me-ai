@@ -243,56 +243,138 @@ Provide all output in English.
         # Parse the response
         persona_data = parse_persona_response(response, request.language)
         
-        # Generate avatar using OpenAI image generation
-        image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
+        # Generate avatar using Replicate InstantID (identity-preserving)
+        avatar_base64 = None
+        avatar_url = None
+        mode_used = '1-photo'
+        provider = 'replicate'
+        attempts = 0
+        max_attempts = 2
+        
+        # Prepare images
+        all_images = [request.selfie_base64]
+        if request.additional_photos:
+            all_images.extend(request.additional_photos[:2])  # Max 3 total
+            mode_used = '3-photo' if len(all_images) >= 3 else '1-photo'
         
         style_desc = theme_config['prompt_override'] or theme_config['style']
         
-        # Similarity level modifiers
-        similarity_modifiers = {
-            'realistic': """
-CRITICAL: This portrait MUST look like a REAL SPECIFIC PERSON, not a generic model.
-Create an IDENTITY-PRESERVING portrait that maintains the exact facial features, face shape, and unique characteristics.
-The face should be instantly recognizable as a specific individual.
-Photorealistic quality, like a professional headshot photo of a real person.
-NO generic model faces. This should look like a REAL person's LinkedIn/portfolio photo.
-""",
-            'stylized': """
-Create a semi-stylized portrait with artistic interpretation.
-Maintain general facial structure but with artistic flair.
-Think fashion photography meets digital art.
-""",
-            'creative': """
-Create a fully artistic, creative interpretation.
-The face can be highly stylized, artistic, or fantastical.
-Focus on mood, theme, and artistic expression over likeness.
-"""
+        # InstantID parameters based on similarity level
+        # identity_strength: 0-1, higher = more faithful to face
+        # style_strength: 0-1, higher = more stylized
+        similarity_params = {
+            'realistic': {
+                'ip_adapter_scale': 0.8,  # High identity preservation
+                'controlnet_conditioning_scale': 0.8,
+                'guidance_scale': 5.0,
+                'style_strength': 0.2,
+                'prompt_suffix': 'photorealistic portrait, professional headshot, exact facial features preserved, same person, same face'
+            },
+            'stylized': {
+                'ip_adapter_scale': 0.6,
+                'controlnet_conditioning_scale': 0.6,
+                'guidance_scale': 7.0,
+                'style_strength': 0.5,
+                'prompt_suffix': 'artistic portrait, cinematic lighting, stylized but recognizable face'
+            },
+            'creative': {
+                'ip_adapter_scale': 0.4,
+                'controlnet_conditioning_scale': 0.4,
+                'guidance_scale': 9.0,
+                'style_strength': 0.8,
+                'prompt_suffix': 'creative artistic portrait, fantasy style, distinctive character'
+            }
         }
         
-        similarity_mod = similarity_modifiers.get(request.similarity_level, similarity_modifiers['realistic'])
+        params = similarity_params.get(request.similarity_level, similarity_params['realistic'])
         
-        image_prompt = f"""
-{similarity_mod}
+        # Try Replicate InstantID
+        if REPLICATE_API_TOKEN:
+            logger.info(f"Using Replicate InstantID with {mode_used}, similarity: {request.similarity_level}")
+            
+            while attempts < max_attempts:
+                attempts += 1
+                try:
+                    # Convert base64 to data URI for Replicate
+                    face_image_uri = f"data:image/jpeg;base64,{all_images[0]}"
+                    
+                    prompt = f"""portrait of a person, {style_desc}, {params['prompt_suffix']}, 
+                    high quality, detailed face, clean background, professional lighting"""
+                    
+                    negative_prompt = """different person, different face, celebrity, generic model, 
+                    stock photo, change identity, morph, blurry, deformed, bad anatomy, 
+                    disfigured, poorly drawn face, mutation, extra limbs"""
+                    
+                    # Set Replicate API token
+                    os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
+                    
+                    # Run InstantID model
+                    output = replicate.run(
+                        "zsxkib/instant-id:main",
+                        input={
+                            "image": face_image_uri,
+                            "prompt": prompt,
+                            "negative_prompt": negative_prompt,
+                            "ip_adapter_scale": params['ip_adapter_scale'],
+                            "controlnet_conditioning_scale": params['controlnet_conditioning_scale'],
+                            "guidance_scale": params['guidance_scale'],
+                            "num_inference_steps": 30,
+                            "seed": -1,  # Random seed for variation
+                            "output_format": "png",
+                            "output_quality": 90
+                        }
+                    )
+                    
+                    if output:
+                        # Output is a URL, download and convert to base64
+                        avatar_url = str(output) if isinstance(output, str) else str(output[0]) if output else None
+                        
+                        if avatar_url:
+                            async with httpx.AsyncClient() as client:
+                                response = await client.get(avatar_url, timeout=30.0)
+                                if response.status_code == 200:
+                                    avatar_base64 = base64.b64encode(response.content).decode('utf-8')
+                                    logger.info(f"InstantID avatar generated successfully on attempt {attempts}")
+                                    break
+                                    
+                except Exception as e:
+                    logger.error(f"Replicate InstantID attempt {attempts} failed: {str(e)}")
+                    if attempts >= max_attempts:
+                        logger.warning("Max attempts reached, falling back to OpenAI")
+        
+        # Fallback to OpenAI if Replicate failed or not configured
+        if not avatar_base64:
+            logger.info("Using OpenAI fallback for avatar generation")
+            provider = 'openai'
+            
+            image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
+            
+            similarity_modifiers = {
+                'realistic': "Create a photorealistic portrait that looks like a real specific person. Professional headshot quality.",
+                'stylized': "Create a semi-stylized artistic portrait with cinematic lighting.",
+                'creative': "Create a fully artistic, creative portrait with fantasy elements."
+            }
+            
+            image_prompt = f"""
+{similarity_modifiers.get(request.similarity_level, similarity_modifiers['realistic'])}
 
 Style: {style_desc}
 Portrait orientation (9:16 aspect ratio).
 High quality studio lighting, clean soft background, social media ready.
 Focus on face and upper body.
-Professional photography quality, sharp focus on facial features.
 """
+            
+            images = await image_gen.generate_images(
+                prompt=image_prompt,
+                model="gpt-image-1",
+                number_of_images=1
+            )
+            
+            if images and len(images) > 0:
+                avatar_base64 = base64.b64encode(images[0]).decode('utf-8')
         
-        logger.info(f"Generating avatar with similarity: {request.similarity_level}, prompt: {image_prompt[:100]}...")
-        images = await image_gen.generate_images(
-            prompt=image_prompt,
-            model="gpt-image-1",
-            number_of_images=1
-        )
-        
-        if not images or len(images) == 0:
+        if not avatar_base64:
             raise HTTPException(status_code=500, detail="Avatar could not be generated")
-        
-        # Convert to base64
-        avatar_base64 = base64.b64encode(images[0]).decode('utf-8')
         
         # Create persona object
         persona = GeneratedPersona(
@@ -301,14 +383,19 @@ Professional photography quality, sharp focus on facial features.
             traits=persona_data['traits'],
             share_quote=persona_data['quote'],
             avatar_base64=avatar_base64,
+            avatar_url=avatar_url,
             persona_theme=request.persona_theme,
-            language=request.language
+            language=request.language,
+            similarity_level=request.similarity_level,
+            mode_used=mode_used,
+            provider=provider,
+            attempts=attempts
         )
         
         # Save to database
         await db.personas.insert_one(persona.dict())
         
-        logger.info(f"Persona created successfully: {persona.id}")
+        logger.info(f"Persona created successfully: {persona.id}, provider: {provider}, attempts: {attempts}")
         return persona
         
     except Exception as e:
