@@ -86,8 +86,9 @@ export default function LoadingScreen() {
       const quizAnswers = JSON.parse(quizAnswersStr);
       const language = i18n.language;
       
-      // Get similarity level and additional photos
+      // Get similarity level, additional photos, and user gender
       const similarityLevel = await AsyncStorage.getItem('similarity_level') || 'realistic';
+      const userGender = await AsyncStorage.getItem('user_gender') || null;
       const additionalPhotosStr = await AsyncStorage.getItem('selfie_all');
       let additionalPhotos: string[] = [];
       if (additionalPhotosStr) {
@@ -100,7 +101,7 @@ export default function LoadingScreen() {
 
       setLoadingText(t('loading.generating'));
 
-      // Call API with all parameters
+      // Call API with all parameters including gender
       const response = await axios.post(
         `${BACKEND_URL}/api/generate-persona`,
         {
@@ -110,6 +111,7 @@ export default function LoadingScreen() {
           language: language,
           similarity_level: similarityLevel,
           additional_photos: additionalPhotos.length > 1 ? additionalPhotos : null,
+          user_gender: userGender || null, // null = auto-detect
         },
         {
           timeout: 120000, // 2 minute timeout
