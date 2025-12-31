@@ -176,16 +176,52 @@ export default function ResultsScreen() {
   };
 
   const handleRegenerate = async () => {
-    // TODO: Implement credit check
-    // For now, go back to camera to start over
+    // Regenerate persona with same data but new seed
     setRegenerating(true);
     try {
-      // Clear stored data and go to camera
-      await AsyncStorage.removeItem('selfie');
-      await AsyncStorage.removeItem('selfie_all');
-      router.replace('/camera');
+      // Get stored data
+      const selfie = await AsyncStorage.getItem('selfie');
+      const quizAnswersStr = await AsyncStorage.getItem('quiz_answers');
+      const selectedPersona = await AsyncStorage.getItem('selected_persona');
+      const similarityLevel = await AsyncStorage.getItem('similarity_level') || 'realistic';
+      const additionalPhotosStr = await AsyncStorage.getItem('selfie_all');
+      
+      if (!selfie || !quizAnswersStr || !selectedPersona) {
+        // If no data, go back to camera
+        router.replace('/camera');
+        return;
+      }
+
+      const quizAnswers = JSON.parse(quizAnswersStr);
+      let additionalPhotos: string[] = [];
+      if (additionalPhotosStr) {
+        try {
+          additionalPhotos = JSON.parse(additionalPhotosStr);
+        } catch (e) {}
+      }
+
+      // Call API to regenerate
+      const response = await axios.post(
+        `${BACKEND_URL}/api/generate-persona`,
+        {
+          selfie_base64: selfie,
+          quiz_answers: quizAnswers,
+          persona_theme: selectedPersona,
+          language: i18n.language,
+          similarity_level: similarityLevel,
+          additional_photos: additionalPhotos.length > 1 ? additionalPhotos : null,
+        },
+        { timeout: 120000 }
+      );
+
+      if (response.data && response.data.id) {
+        // Navigate to new persona
+        router.replace(`/results/${response.data.id}`);
+      }
     } catch (error) {
       console.error('Error regenerating:', error);
+      // On error, show alert and stay on page
+      Alert.alert('Hata', 'Yeniden üretim başarısız. Lütfen tekrar deneyin.');
     } finally {
       setRegenerating(false);
     }
