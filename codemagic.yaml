@@ -46,7 +46,6 @@ workflows:
           
           cat > /tmp/configure_signing.py << 'PYTHON_SCRIPT'
           import re
-          import os
           
           build_gradle_path = "build.gradle"
           
@@ -68,24 +67,11 @@ workflows:
               }
           '''
           
-          android_match = re.search(r'(android\s*\{)', content)
-          if android_match:
-              buildtypes_match = re.search(r'(\s*buildTypes\s*\{)', content)
-              if buildtypes_match:
-                  insert_pos = buildtypes_match.start()
-                  content = content[:insert_pos] + signing_config + '\n' + content[insert_pos:]
-                  print("✅ Added signingConfigs before buildTypes")
-          
-          release_pattern = r'(buildTypes\s*\{[^}]*release\s*\{[^}]*)(minifyEnabled[^\n]*)'
-          
-          def add_signing_config(match):
-              prefix = match.group(1)
-              minify_line = match.group(2)
-              if 'signingConfig' not in prefix:
-                  return prefix + minify_line + '\n            signingConfig signingConfigs.release'
-              return match.group(0)
-          
-          content = re.sub(release_pattern, add_signing_config, content, flags=re.DOTALL)
+          buildtypes_match = re.search(r'(\s*buildTypes\s*\{)', content)
+          if buildtypes_match:
+              insert_pos = buildtypes_match.start()
+              content = content[:insert_pos] + signing_config + '\n' + content[insert_pos:]
+              print("✅ Added signingConfigs before buildTypes")
           
           if 'signingConfig signingConfigs.release' not in content:
               pattern = r'(release\s*\{[^}]*?)(minifyEnabled\s+\w+)'
@@ -102,18 +88,9 @@ workflows:
           python3 /tmp/configure_signing.py
           
           echo ""
-          echo "=== Updated build.gradle (relevant sections) ==="
-          grep -A 15 "signingConfigs" build.gradle || echo "Checking alternative..."
+          echo "=== Updated build.gradle ==="
+          grep -A 15 "signingConfigs" build.gradle || echo "Checking..."
           grep -A 8 "release {" build.gradle | head -20
-
-      - name: Set Environment Variables for Signing
-        script: |
-          export CM_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
-          export CM_KEY_ALIAS="$CM_KEY_ALIAS"
-          export CM_KEY_PASSWORD="$CM_KEY_PASSWORD"
-          
-          echo "✅ Signing environment variables set"
-          echo "Key Alias: $CM_KEY_ALIAS"
 
       - name: Build Release AAB
         script: |
@@ -136,28 +113,8 @@ workflows:
             echo "📊 AAB Size: $(ls -lh $AAB_FILE | awk '{print $5}')"
           else
             echo "❌ ERROR: No AAB file found!"
-            find . -name "*.aab" -o -name "*.apk" 2>/dev/null
             exit 1
           fi
-
-      - name: Display Build Info
-        script: |
-          echo "=========================================="
-          echo "         BUILD SUMMARY"
-          echo "=========================================="
-          echo ""
-          echo "📱 App: Find Me AI"
-          echo "📦 Package: com.findmeai.app"
-          echo "🔢 Version: 1.0.0"
-          echo "🔢 Version Code: 1"
-          echo ""
-          echo "📁 Artifacts:"
-          find frontend/android -name "*.aab" -type f -exec ls -lh {} \;
-          echo ""
-          echo "🔐 Mapping file:"
-          find frontend/android -name "mapping.txt" -type f -exec ls -lh {} \; || echo "No mapping.txt (ProGuard may be disabled)"
-          echo ""
-          echo "=========================================="
 
     artifacts:
       - frontend/android/app/build/outputs/bundle/release/*.aab
@@ -200,9 +157,14 @@ workflows:
           
           echo "✅ Debug APK built:"
           find . -name "*.apk" -type f -exec ls -lh {} \;
+          
+          echo ""
+          echo "📁 All APK locations:"
+          find $CM_BUILD_DIR -name "*.apk" -type f 2>/dev/null
 
     artifacts:
-      - frontend/android/app/build/outputs/apk/debug/*.apk
+      - frontend/android/app/build/outputs/apk/**/*.apk
+      - "**/outputs/apk/**/*.apk"
     
     publishing:
       email:
