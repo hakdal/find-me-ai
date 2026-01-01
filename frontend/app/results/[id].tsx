@@ -12,6 +12,7 @@ import {
   Animated,
   Modal,
   Alert,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -23,6 +24,7 @@ import { useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
@@ -53,8 +55,27 @@ const PERSONA_TITLES: Record<string, { title: string; level: number; maxLevel: n
   'Glam Diva': { title: 'Işıltının Kraliçesi', level: 7, maxLevel: 12 },
 };
 
-// Stat bar component
-const StatBar = ({ label, value, color, delay }: { label: string; value: number; color: string; delay: number }) => {
+// Stat descriptions for tooltip
+const STAT_INFO: Record<string, string> = {
+  'Liderlik': 'Quiz cevaplarına göre karar verme ve yönlendirme yeteneğiniz',
+  'Empati': 'Duygusal zeka ve başkalarını anlama kapasiteniz',
+  'Risk Alma': 'Cesaret ve yenilikçi düşünme eğiliminiz',
+};
+
+// Stat bar component with tooltip
+const StatBar = ({ 
+  label, 
+  value, 
+  color, 
+  delay,
+  onInfoPress 
+}: { 
+  label: string; 
+  value: number; 
+  color: string; 
+  delay: number;
+  onInfoPress: () => void;
+}) => {
   const animValue = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
@@ -74,7 +95,12 @@ const StatBar = ({ label, value, color, delay }: { label: string; value: number;
   return (
     <View style={styles.statContainer}>
       <View style={styles.statHeader}>
-        <Text style={styles.statLabel}>{label}</Text>
+        <View style={styles.statLabelRow}>
+          <Text style={styles.statLabel}>{label}</Text>
+          <TouchableOpacity onPress={onInfoPress} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="help-circle-outline" size={16} color={Colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.statValue}>{value}%</Text>
       </View>
       <View style={styles.statBarBg}>
@@ -90,8 +116,11 @@ export default function ResultsScreen() {
   const [persona, setPersona] = useState<PersonaData | null>(null);
   const [loading, setLoading] = useState(true);
   const [generatingShareCard, setGeneratingShareCard] = useState(false);
+  const [savingAvatar, setSavingAvatar] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [showLevelInfo, setShowLevelInfo] = useState(false);
+  const [showStatInfo, setShowStatInfo] = useState<string | null>(null);
+  const [showShareSheet, setShowShareSheet] = useState(false);
   const router = useRouter();
   
   // Animation refs
@@ -147,49 +176,124 @@ export default function ResultsScreen() {
   const personaTitle = PERSONA_TITLES[persona?.persona_theme || ''] || { title: 'Gizemli Ruh', level: 7, maxLevel: 12 };
   const levelName = LEVEL_NAMES[personaTitle.level] || 'Usta';
 
-  const handleShareCard = async () => {
+  // Save avatar to gallery
+  const saveAvatarToGallery = async () => {
     if (!persona) return;
+    setSavingAvatar(true);
     try {
-      setGeneratingShareCard(true);
+      const fileUri = FileSystem.documentDirectory + `findmeai_avatar_${persona.id}.png`;
+      await FileSystem.writeAsStringAsync(fileUri, persona.avatar_base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status === 'granted') {
+        await MediaLibrary.saveToLibraryAsync(fileUri);
+        Alert.alert('✅ Başarılı', 'Avatar galeriye kaydedildi!');
+      } else {
+        Alert.alert('İzin Gerekli', 'Galeriye kaydetmek için izin verin.');
+      }
+    } catch (error) {
+      console.error('Error saving avatar:', error);
+      Alert.alert('Hata', 'Avatar kaydedilemedi.');
+    } finally {
+      setSavingAvatar(false);
+    }
+  };
+
+  // Generate and save story card
+  const generateAndSaveStoryCard = async () => {
+    if (!persona) return;
+    setGeneratingShareCard(true);
+    try {
       const response = await axios.post(`${BACKEND_URL}/api/generate-share-card`, {
         persona_id: persona.id,
       });
+
       if (response.data && response.data.share_card_base64) {
-        const fileUri = FileSystem.documentDirectory + `findmeai_${persona.id}.png`;
+        const fileUri = FileSystem.documentDirectory + `findmeai_story_${persona.id}.png`;
         await FileSystem.writeAsStringAsync(fileUri, response.data.share_card_base64, {
           encoding: FileSystem.EncodingType.Base64,
         });
+        
         const { status } = await MediaLibrary.requestPermissionsAsync();
         if (status === 'granted') {
           await MediaLibrary.saveToLibraryAsync(fileUri);
+          Alert.alert('✅ Başarılı', 'Story kartı galeriye kaydedildi!');
         }
+        return fileUri;
+      }
+    } catch (error) {
+      console.error('Error generating story card:', error);
+      Alert.alert('Hata', 'Story kartı oluşturulamadı.');
+    } finally {
+      setGeneratingShareCard(false);
+    }
+    return null;
+  };
+
+  // Share to specific platform
+  const shareToInstagram = async () => {
+    setShowShareSheet(false);
+    const fileUri = await generateAndSaveStoryCard();
+    if (fileUri) {
+      Alert.alert(
+        '📸 Instagram Story',
+        'Story kartı galeriye kaydedildi. Instagram\'ı açıp Story oluşturabilirsiniz.',
+        [{ text: 'Tamam' }]
+      );
+    }
+  };
+
+  const shareToWhatsApp = async () => {
+    setShowShareSheet(false);
+    if (!persona) return;
+    
+    const message = `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`;
+    
+    try {
+      await Share.share({ message });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  };
+
+  const shareGeneral = async () => {
+    setShowShareSheet(false);
+    if (!persona) return;
+    
+    try {
+      const fileUri = FileSystem.documentDirectory + `findmeai_share_${persona.id}.png`;
+      await FileSystem.writeAsStringAsync(fileUri, persona.avatar_base64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'image/png',
+          dialogTitle: 'Personanı Paylaş',
+        });
+      } else {
         await Share.share({
-          message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
+          message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"`,
         });
       }
     } catch (error) {
-      console.error('Error generating share card:', error);
-      await Share.share({
-        message: `🔮 ${persona.persona_name} — ${personaTitle.title}\n\n"${persona.share_quote}"\n\nFIND ME AI ile senin de alter ego personanı keşfet! 🚀`,
-      });
-    } finally {
-      setGeneratingShareCard(false);
+      console.error('Share error:', error);
     }
   };
 
   const handleRegenerate = async () => {
-    // Regenerate persona with same data but new seed
     setRegenerating(true);
     try {
-      // Get stored data
       const selfie = await AsyncStorage.getItem('selfie');
       const quizAnswersStr = await AsyncStorage.getItem('quiz_answers');
       const selectedPersona = await AsyncStorage.getItem('selected_persona');
       const similarityLevel = await AsyncStorage.getItem('similarity_level') || 'realistic';
+      const userGender = await AsyncStorage.getItem('user_gender') || null;
       const additionalPhotosStr = await AsyncStorage.getItem('selfie_all');
       
       if (!selfie || !quizAnswersStr || !selectedPersona) {
-        // If no data, go back to camera
         router.replace('/camera');
         return;
       }
@@ -197,12 +301,9 @@ export default function ResultsScreen() {
       const quizAnswers = JSON.parse(quizAnswersStr);
       let additionalPhotos: string[] = [];
       if (additionalPhotosStr) {
-        try {
-          additionalPhotos = JSON.parse(additionalPhotosStr);
-        } catch (e) {}
+        try { additionalPhotos = JSON.parse(additionalPhotosStr); } catch (e) {}
       }
 
-      // Call API to regenerate
       const response = await axios.post(
         `${BACKEND_URL}/api/generate-persona`,
         {
@@ -212,17 +313,16 @@ export default function ResultsScreen() {
           language: i18n.language,
           similarity_level: similarityLevel,
           additional_photos: additionalPhotos.length > 1 ? additionalPhotos : null,
+          user_gender: userGender || null,
         },
         { timeout: 120000 }
       );
 
       if (response.data && response.data.id) {
-        // Navigate to new persona
         router.replace(`/results/${response.data.id}`);
       }
     } catch (error) {
       console.error('Error regenerating:', error);
-      // On error, show alert and stay on page
       Alert.alert('Hata', 'Yeniden üretim başarısız. Lütfen tekrar deneyin.');
     } finally {
       setRegenerating(false);
@@ -265,7 +365,6 @@ export default function ResultsScreen() {
             <Ionicons name="close" size={28} color={Colors.text} />
           </TouchableOpacity>
           
-          {/* Level Badge - Tappable */}
           <TouchableOpacity style={styles.levelBadge} onPress={() => setShowLevelInfo(true)}>
             <Text style={styles.levelText}>Seviye {personaTitle.level} ({levelName})</Text>
             <Ionicons name="information-circle-outline" size={16} color="#CC99FF" style={{ marginLeft: 6 }} />
@@ -275,12 +374,30 @@ export default function ResultsScreen() {
         </View>
 
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-          {/* Avatar with glow */}
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatarGlow} />
-            <LinearGradient colors={[Colors.primary, Colors.gradient2, Colors.secondary]} style={styles.avatarGradient}>
-              <Image source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }} style={styles.avatar} resizeMode="cover" />
-            </LinearGradient>
+          {/* Avatar with glow + Save button */}
+          <View style={styles.avatarSection}>
+            <View style={styles.avatarContainer}>
+              <View style={styles.avatarGlow} />
+              <LinearGradient colors={[Colors.primary, Colors.gradient2, Colors.secondary]} style={styles.avatarGradient}>
+                <Image source={{ uri: `data:image/png;base64,${persona.avatar_base64}` }} style={styles.avatar} resizeMode="cover" />
+              </LinearGradient>
+            </View>
+            
+            {/* Save Avatar Button */}
+            <TouchableOpacity 
+              style={styles.saveAvatarBtn} 
+              onPress={saveAvatarToGallery}
+              disabled={savingAvatar}
+            >
+              {savingAvatar ? (
+                <ActivityIndicator size="small" color={Colors.text} />
+              ) : (
+                <>
+                  <Ionicons name="download-outline" size={18} color={Colors.text} />
+                  <Text style={styles.saveAvatarText}>Avatarı Kaydet</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
 
           {/* Persona Name + Title */}
@@ -294,12 +411,36 @@ export default function ResultsScreen() {
             </View>
           </View>
 
-          {/* Stats Bars */}
+          {/* Divider */}
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>KİŞİLİK ANALİZİ</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Stats Bars with tooltips */}
           <View style={styles.statsSection}>
-            <Text style={styles.sectionTitle}>✨ KİŞİLİK ANALİZİ</Text>
-            <StatBar label="Liderlik" value={stats.leadership} color="#FF3366" delay={200} />
-            <StatBar label="Empati" value={stats.empathy} color="#00FFFF" delay={400} />
-            <StatBar label="Risk Alma" value={stats.risk} color="#9933FF" delay={600} />
+            <StatBar 
+              label="Liderlik" 
+              value={stats.leadership} 
+              color="#FF3366" 
+              delay={200} 
+              onInfoPress={() => setShowStatInfo('Liderlik')}
+            />
+            <StatBar 
+              label="Empati" 
+              value={stats.empathy} 
+              color="#00FFFF" 
+              delay={400}
+              onInfoPress={() => setShowStatInfo('Empati')}
+            />
+            <StatBar 
+              label="Risk Alma" 
+              value={stats.risk} 
+              color="#9933FF" 
+              delay={600}
+              onInfoPress={() => setShowStatInfo('Risk Alma')}
+            />
           </View>
 
           {/* Traits */}
@@ -335,7 +476,12 @@ export default function ResultsScreen() {
         {/* Actions */}
         <View style={styles.actions}>
           {/* Main Share Button */}
-          <TouchableOpacity style={styles.mainShareButton} onPress={handleShareCard} disabled={generatingShareCard} activeOpacity={0.85}>
+          <TouchableOpacity 
+            style={styles.mainShareButton} 
+            onPress={() => setShowShareSheet(true)} 
+            disabled={generatingShareCard} 
+            activeOpacity={0.85}
+          >
             <LinearGradient colors={['#FF3366', '#FF6B6B', '#FF3366']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.mainShareGradient}>
               {generatingShareCard ? (
                 <ActivityIndicator size="small" color={Colors.text} />
@@ -344,7 +490,7 @@ export default function ResultsScreen() {
                   <Ionicons name="share-social" size={26} color={Colors.text} />
                   <View style={styles.shareTextContainer}>
                     <Text style={styles.mainShareText}>PAYLAŞ</Text>
-                    <Text style={styles.shareSubtext}>Story formatında kaydet</Text>
+                    <Text style={styles.shareSubtext}>Instagram, WhatsApp veya Kaydet</Text>
                   </View>
                 </>
               )}
@@ -363,19 +509,69 @@ export default function ResultsScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Create Another */}
+          {/* Create Another - More prominent */}
           <TouchableOpacity style={styles.createAnotherButton} onPress={createAnother} activeOpacity={0.8}>
-            <Ionicons name="sparkles" size={20} color={Colors.textSecondary} />
-            <Text style={styles.createAnotherText}>Yeni Persona Oluştur</Text>
+            <LinearGradient colors={[Colors.surfaceLight, Colors.surface]} style={styles.createAnotherGradient}>
+              <Ionicons name="sparkles" size={22} color={Colors.secondary} />
+              <Text style={styles.createAnotherText}>Yeni Persona Oluştur</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
 
-        {/* Bottom Logo */}
+        {/* Enhanced Brand Logo */}
         <View style={styles.bottomLogo}>
-          <Text style={styles.logoText}>FIND ME AI</Text>
+          <LinearGradient colors={['rgba(255,51,102,0.3)', 'rgba(153,51,255,0.3)']} style={styles.logoGradient}>
+            <Text style={styles.logoText}>FIND ME AI</Text>
+            <Text style={styles.logoTagline}>Alter Egonu Keşfet</Text>
+          </LinearGradient>
         </View>
+
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Share Bottom Sheet */}
+      <Modal visible={showShareSheet} transparent animationType="slide">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowShareSheet(false)}>
+          <View style={styles.shareSheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.shareSheetTitle}>Paylaş</Text>
+            
+            <View style={styles.shareOptions}>
+              <TouchableOpacity style={styles.shareOption} onPress={shareToInstagram}>
+                <View style={[styles.shareOptionIcon, { backgroundColor: '#E1306C' }]}>
+                  <Ionicons name="logo-instagram" size={28} color="white" />
+                </View>
+                <Text style={styles.shareOptionText}>Instagram Story</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.shareOption} onPress={shareToWhatsApp}>
+                <View style={[styles.shareOptionIcon, { backgroundColor: '#25D366' }]}>
+                  <Ionicons name="logo-whatsapp" size={28} color="white" />
+                </View>
+                <Text style={styles.shareOptionText}>WhatsApp</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.shareOption} onPress={generateAndSaveStoryCard}>
+                <View style={[styles.shareOptionIcon, { backgroundColor: Colors.primary }]}>
+                  <Ionicons name="image-outline" size={28} color="white" />
+                </View>
+                <Text style={styles.shareOptionText}>Story Kartı Kaydet</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={styles.shareOption} onPress={shareGeneral}>
+                <View style={[styles.shareOptionIcon, { backgroundColor: Colors.secondary }]}>
+                  <Ionicons name="share-outline" size={28} color="white" />
+                </View>
+                <Text style={styles.shareOptionText}>Diğer</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <TouchableOpacity style={styles.shareSheetCancel} onPress={() => setShowShareSheet(false)}>
+              <Text style={styles.shareSheetCancelText}>İptal</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Level Info Bottom Sheet */}
       <Modal visible={showLevelInfo} transparent animationType="slide">
@@ -418,6 +614,19 @@ export default function ResultsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Stat Info Modal */}
+      <Modal visible={!!showStatInfo} transparent animationType="fade">
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowStatInfo(null)}>
+          <View style={styles.statInfoModal}>
+            <Text style={styles.statInfoTitle}>{showStatInfo}</Text>
+            <Text style={styles.statInfoDesc}>{STAT_INFO[showStatInfo || ''] || ''}</Text>
+            <TouchableOpacity style={styles.statInfoClose} onPress={() => setShowStatInfo(null)}>
+              <Text style={styles.statInfoCloseText}>Tamam</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -430,53 +639,68 @@ const styles = StyleSheet.create({
   backButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center' },
   levelBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(153,51,255,0.3)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(153,51,255,0.5)' },
   levelText: { fontSize: 13, fontWeight: '700', color: '#CC99FF' },
-  avatarContainer: { alignItems: 'center', marginVertical: 20, position: 'relative' },
+  
+  avatarSection: { alignItems: 'center', marginVertical: 20 },
+  avatarContainer: { alignItems: 'center', position: 'relative' },
   avatarGlow: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: Colors.primary, opacity: 0.2, top: -10 },
   avatarGradient: { padding: 5, borderRadius: 130 },
   avatar: { width: 250, height: 250, borderRadius: 125, backgroundColor: Colors.surface },
-  nameContainer: { alignItems: 'center', marginBottom: 24, paddingHorizontal: 24 },
+  saveAvatarBtn: { flexDirection: 'row', alignItems: 'center', marginTop: 16, backgroundColor: Colors.surfaceLight, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20, gap: 8 },
+  saveAvatarText: { fontSize: 14, fontWeight: '600', color: Colors.text },
+  
+  nameContainer: { alignItems: 'center', marginBottom: 20, paddingHorizontal: 24 },
   personaName: { fontSize: 34, fontWeight: '900', color: Colors.text, textAlign: 'center', marginBottom: 8, textShadowColor: 'rgba(255,51,102,0.3)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center', gap: 12 },
   personaTitle: { fontSize: 18, fontWeight: '600', color: Colors.secondary },
   themeBadge: { backgroundColor: Colors.surfaceLight, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   themeText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
+  
+  divider: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 24, marginBottom: 20 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  dividerText: { paddingHorizontal: 16, fontSize: 12, fontWeight: '700', color: Colors.textSecondary, letterSpacing: 2 },
+  
   statsSection: { paddingHorizontal: 24, marginBottom: 28 },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: Colors.text, marginBottom: 16, letterSpacing: 1 },
   statContainer: { marginBottom: 16 },
   statHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  statLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   statLabel: { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
   statValue: { fontSize: 14, color: Colors.text, fontWeight: '700' },
   statBarBg: { height: 10, backgroundColor: Colors.surfaceLight, borderRadius: 5, overflow: 'hidden' },
   statBarFill: { height: '100%', borderRadius: 5 },
+  
   traitsContainer: { paddingHorizontal: 24, marginBottom: 28 },
   traitsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   traitChip: { backgroundColor: Colors.surfaceLight, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: Colors.border },
   traitChipText: { fontSize: 14, color: Colors.text, fontWeight: '500' },
+  
   mottoContainer: { paddingHorizontal: 24, marginBottom: 28 },
   mottoGradient: { padding: 20, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,51,102,0.3)' },
   mottoHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   mottoLabel: { fontSize: 12, fontWeight: '700', color: Colors.primary, letterSpacing: 1 },
   mottoText: { fontSize: 20, color: Colors.text, fontStyle: 'italic', lineHeight: 30, fontWeight: '500' },
+  
   bioContainer: { paddingHorizontal: 24, marginBottom: 32 },
   bioText: { fontSize: 16, color: Colors.textSecondary, lineHeight: 26 },
+  
   actions: { paddingHorizontal: 24, gap: 12 },
   mainShareButton: { borderRadius: 30, overflow: 'hidden', elevation: 12, shadowColor: '#FF3366', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 12 },
   mainShareGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 20, paddingHorizontal: 32, gap: 16 },
   shareTextContainer: { alignItems: 'flex-start' },
   mainShareText: { fontSize: 20, fontWeight: '800', color: Colors.text, letterSpacing: 2 },
   shareSubtext: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  
   regenerateButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 25, borderWidth: 2, borderColor: Colors.primary, gap: 8 },
   regenerateText: { fontSize: 15, fontWeight: '600', color: Colors.primary },
-  createAnotherButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 8 },
-  createAnotherText: { fontSize: 15, fontWeight: '500', color: Colors.textSecondary },
-  bottomLogo: { alignItems: 'center', marginTop: 32 },
-  logoText: { fontSize: 12, fontWeight: '600', color: Colors.border, letterSpacing: 4 },
-  loadingContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
-  errorContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  errorText: { fontSize: 18, color: Colors.textSecondary, marginBottom: 24 },
-  homeButton: { backgroundColor: Colors.primary, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 25 },
-  homeButtonText: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  
+  createAnotherButton: { borderRadius: 25, overflow: 'hidden' },
+  createAnotherGradient: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 18, gap: 10 },
+  createAnotherText: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  
+  bottomLogo: { alignItems: 'center', marginTop: 32, paddingHorizontal: 24 },
+  logoGradient: { paddingVertical: 16, paddingHorizontal: 32, borderRadius: 16, alignItems: 'center' },
+  logoText: { fontSize: 18, fontWeight: '800', color: Colors.text, letterSpacing: 4 },
+  logoTagline: { fontSize: 12, color: Colors.textSecondary, marginTop: 4 },
   
   // Modal styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
@@ -494,4 +718,28 @@ const styles = StyleSheet.create({
   howToItem: { fontSize: 14, color: Colors.textSecondary, marginBottom: 6 },
   sheetCloseBtn: { backgroundColor: Colors.primary, paddingVertical: 16, borderRadius: 25, marginTop: 20 },
   sheetCloseBtnText: { fontSize: 16, fontWeight: '700', color: Colors.text, textAlign: 'center' },
+  
+  // Share Sheet
+  shareSheet: { backgroundColor: Colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  shareSheetTitle: { fontSize: 20, fontWeight: '700', color: Colors.text, textAlign: 'center', marginBottom: 24 },
+  shareOptions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 16 },
+  shareOption: { alignItems: 'center', width: (width - 80) / 4 },
+  shareOptionIcon: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  shareOptionText: { fontSize: 11, color: Colors.text, textAlign: 'center' },
+  shareSheetCancel: { marginTop: 24, paddingVertical: 16, backgroundColor: Colors.surfaceLight, borderRadius: 25 },
+  shareSheetCancelText: { fontSize: 16, fontWeight: '600', color: Colors.textSecondary, textAlign: 'center' },
+  
+  // Stat Info Modal
+  statInfoModal: { backgroundColor: Colors.surface, marginHorizontal: 40, borderRadius: 20, padding: 24, alignSelf: 'center', marginTop: 'auto', marginBottom: 'auto' },
+  statInfoTitle: { fontSize: 18, fontWeight: '700', color: Colors.text, marginBottom: 12 },
+  statInfoDesc: { fontSize: 14, color: Colors.textSecondary, lineHeight: 22 },
+  statInfoClose: { backgroundColor: Colors.primary, paddingVertical: 12, borderRadius: 20, marginTop: 20 },
+  statInfoCloseText: { fontSize: 14, fontWeight: '600', color: Colors.text, textAlign: 'center' },
+  
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { fontSize: 16, color: Colors.textSecondary, marginTop: 16 },
+  errorContainer: { flex: 1, backgroundColor: Colors.background, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  errorText: { fontSize: 18, color: Colors.textSecondary, marginBottom: 24 },
+  homeButton: { backgroundColor: Colors.primary, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 25 },
+  homeButtonText: { fontSize: 16, fontWeight: '600', color: Colors.text },
 });
