@@ -8,7 +8,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://ai-alter.preview.emergentagent.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://alter-ego-app-1.preview.emergentagent.com"
       },
       "android": {
         "gradleCommand": ":app:assembleDebug",
@@ -18,7 +18,7 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://ai-alter.preview.emergentagent.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://alter-ego-app-1.preview.emergentagent.com"
       },
       "android": {
         "buildType": "apk"

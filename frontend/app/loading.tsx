@@ -16,7 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { analyticsService } from '../services/analytics';
 import i18n from '../i18n/i18n.config';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://ai-alter.preview.emergentagent.com';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://alter-ego-app-1.preview.emergentagent.com';
 
 // DEBUG: Log the backend URL at module load
 console.log('=== FIND ME AI DEBUG ===');

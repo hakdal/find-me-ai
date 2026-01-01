@@ -9,7 +9,7 @@ workflows:
       groups:
         - android_credentials
       vars:
-        EXPO_PUBLIC_BACKEND_URL: "https://ai-alter.preview.emergentagent.com"
+        EXPO_PUBLIC_BACKEND_URL: "https://alter-ego-app-1.preview.emergentagent.com"
     scripts:
       - name: Install dependencies
         script: |
@@ -57,7 +57,7 @@ workflows:
       java: 17
       node: 18
       vars:
-        EXPO_PUBLIC_BACKEND_URL: "https://ai-alter.preview.emergentagent.com"
+        EXPO_PUBLIC_BACKEND_URL: "https://alter-ego-app-1.preview.emergentagent.com"
     scripts:
       - name: Install dependencies
         script: |
