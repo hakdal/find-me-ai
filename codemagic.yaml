@@ -5,7 +5,7 @@ workflows:
     instance_type: linux_x2
     environment:
       java: 17
-      node: 18
+      node: 20
       groups:
         - android-signing
       vars:
@@ -23,7 +23,7 @@ workflows:
       - name: Install dependencies
         script: |
           cd frontend
-          yarn install
+          yarn install --network-timeout 100000
 
       - name: Expo Prebuild (Generate Android Project)
         script: |
@@ -32,7 +32,6 @@ workflows:
 
       - name: Decode Keystore
         script: |
-          # Decode keystore to a known location
           KEYSTORE_PATH="$CM_BUILD_DIR/frontend/android/app/release-keystore.jks"
           echo $CM_KEYSTORE | base64 --decode > "$KEYSTORE_PATH"
           echo "✅ Keystore decoded to: $KEYSTORE_PATH"
@@ -42,12 +41,9 @@ workflows:
         script: |
           cd frontend/android/app
           
-          # Create the signingConfigs and update build.gradle
-          # First, let's check what build.gradle looks like
           echo "=== Original build.gradle structure ==="
           head -100 build.gradle
           
-          # Create a Python script to properly modify build.gradle
           cat > /tmp/configure_signing.py << 'PYTHON_SCRIPT'
           import re
           import os
@@ -57,13 +53,10 @@ workflows:
           with open(build_gradle_path, 'r') as f:
               content = f.read()
           
-          # Check if signingConfigs already exists
           if 'signingConfigs' in content:
               print("signingConfigs already exists, updating...")
-              # Remove existing signingConfigs block
               content = re.sub(r'signingConfigs\s*\{[^}]*release\s*\{[^}]*\}[^}]*\}', '', content, flags=re.DOTALL)
           
-          # Signing config to add
           signing_config = '''
               signingConfigs {
                   release {
@@ -75,18 +68,14 @@ workflows:
               }
           '''
           
-          # Find the android { block and insert signingConfigs before buildTypes
           android_match = re.search(r'(android\s*\{)', content)
           if android_match:
-              # Find buildTypes position
               buildtypes_match = re.search(r'(\s*buildTypes\s*\{)', content)
               if buildtypes_match:
                   insert_pos = buildtypes_match.start()
                   content = content[:insert_pos] + signing_config + '\n' + content[insert_pos:]
                   print("✅ Added signingConfigs before buildTypes")
           
-          # Now update the release buildType to use signingConfig release
-          # Find release { ... } within buildTypes
           release_pattern = r'(buildTypes\s*\{[^}]*release\s*\{[^}]*)(minifyEnabled[^\n]*)'
           
           def add_signing_config(match):
@@ -98,9 +87,7 @@ workflows:
           
           content = re.sub(release_pattern, add_signing_config, content, flags=re.DOTALL)
           
-          # Alternative: directly find and modify release block
           if 'signingConfig signingConfigs.release' not in content:
-              # Find the release block inside buildTypes and add signingConfig
               pattern = r'(release\s*\{[^}]*?)(minifyEnabled\s+\w+)'
               replacement = r'\1\2\n            signingConfig signingConfigs.release'
               content = re.sub(pattern, replacement, content)
@@ -121,7 +108,6 @@ workflows:
 
       - name: Set Environment Variables for Signing
         script: |
-          # Export signing credentials as environment variables
           export CM_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
           export CM_KEY_ALIAS="$CM_KEY_ALIAS"
           export CM_KEY_PASSWORD="$CM_KEY_PASSWORD"
@@ -134,7 +120,6 @@ workflows:
           cd frontend/android
           chmod +x gradlew
           
-          # Set signing env vars for Gradle
           export CM_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
           export CM_KEY_ALIAS="$CM_KEY_ALIAS"  
           export CM_KEY_PASSWORD="$CM_KEY_PASSWORD"
@@ -192,7 +177,7 @@ workflows:
     instance_type: linux_x2
     environment:
       java: 17
-      node: 18
+      node: 20
       vars:
         EXPO_PUBLIC_BACKEND_URL: "https://alter-ego-app-1.preview.emergentagent.com"
     
@@ -200,7 +185,7 @@ workflows:
       - name: Install dependencies
         script: |
           cd frontend
-          yarn install
+          yarn install --network-timeout 100000
 
       - name: Expo Prebuild
         script: |
