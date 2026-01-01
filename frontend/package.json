@@ -34,6 +34,7 @@
     "expo-localization": "^17.0.8",
     "expo-media-library": "^18.2.1",
     "expo-router": "~5.1.4",
+    "expo-sharing": "^14.0.8",
     "expo-splash-screen": "~0.30.10",
     "expo-status-bar": "~2.2.3",
     "expo-symbols": "~0.4.5",
