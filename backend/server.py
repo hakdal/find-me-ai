@@ -13,10 +13,22 @@ from datetime import datetime
 import base64
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
+import replicate
+import httpx
+import numpy as np
+import cv2
 
 # Import Emergent integrations
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from emergentintegrations.llm.openai.image_generation import OpenAIImageGeneration
+
+# Import DeepFace for gender/age detection
+try:
+    from deepface import DeepFace
+    DEEPFACE_AVAILABLE = True
+except ImportError:
+    DEEPFACE_AVAILABLE = False
+    logging.warning("DeepFace not available, gender detection disabled")
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -28,6 +40,9 @@ db = client[os.environ['DB_NAME']]
 
 # Emergent LLM Key
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+
+# Replicate API Token
+REPLICATE_API_TOKEN = os.environ.get('REPLICATE_API_TOKEN', '')
 
 # Admin API Key (simple authentication)
 ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY', 'admin_secret_key_change_me')
@@ -55,6 +70,9 @@ class GeneratePersonaRequest(BaseModel):
     quiz_answers: List[QuizAnswer]
     persona_theme: str
     language: str = 'tr'  # 'tr' or 'en'
+    similarity_level: str = 'realistic'  # 'realistic', 'stylized', 'creative'
+    additional_photos: Optional[List[str]] = None  # Additional selfie angles
+    user_gender: Optional[str] = None  # 'female', 'male', or None for auto-detect
 
 class GeneratedPersona(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -63,8 +81,16 @@ class GeneratedPersona(BaseModel):
     traits: List[str]
     share_quote: str
     avatar_base64: str
+    avatar_url: Optional[str] = None
     persona_theme: str
     language: str = 'tr'
+    similarity_level: str = 'realistic'
+    mode_used: str = '1-photo'  # '1-photo' or '3-photo'
+    provider: str = 'replicate'  # 'replicate' or 'openai'
+    attempts: int = 1
+    detected_gender: Optional[str] = None  # 'female', 'male', 'unknown'
+    gender_confidence: Optional[float] = None  # 0.0 to 1.0
+    style_used: Optional[str] = None  # Which style was actually used
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class ShareCardRequest(BaseModel):
@@ -96,33 +122,104 @@ class PricingConfig(BaseModel):
     persona_all_try: float = 299.0
     persona_unlimited_try: float = 149.0
 
-# Persona themes and their styles
+# Gender-aware persona themes with female and male variants
 PERSONA_THEMES = {
     "Midnight CEO": {
-        "style": "powerful business leader, sophisticated dark suit, confident pose, luxurious office setting, dramatic lighting, cinematic portrait",
+        "style": "confident leader, powerful executive aura, sophisticated attire, dramatic lighting, cinematic portrait, luxury setting",
+        "style_female": "confident female leader, powerful executive aura, sophisticated elegant attire, dramatic lighting, cinematic portrait, luxury setting, feminine power",
+        "style_male": "confident male leader, powerful executive aura, sophisticated suit, dramatic lighting, cinematic portrait, luxury setting, masculine presence",
         "enabled": True,
         "prompt_override": None
     },
     "Dark Charmer": {
         "style": "mysterious and charismatic, elegant dark fashion, intense gaze, moody atmosphere, artistic portrait, cinematic lighting",
+        "style_female": "mysterious and charismatic woman, elegant dark fashion, intense feminine gaze, moody atmosphere, artistic portrait, cinematic lighting, seductive elegance",
+        "style_male": "mysterious and charismatic man, elegant dark fashion, intense masculine gaze, moody atmosphere, artistic portrait, cinematic lighting, charming presence",
         "enabled": True,
         "prompt_override": None
     },
     "Alpha Strategist": {
         "style": "strategic thinker, sharp professional attire, commanding presence, modern setting, confident expression, high-quality portrait",
+        "style_female": "strategic thinker, sharp professional feminine attire, commanding female presence, modern setting, confident expression, high-quality portrait, power woman",
+        "style_male": "strategic thinker, sharp professional suit, commanding male presence, modern setting, confident expression, high-quality portrait, business leader",
         "enabled": True,
         "prompt_override": None
     },
     "Glam Diva": {
         "style": "glamorous and stylish, fashion-forward outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting",
+        "style_female": "glamorous diva, fashion-forward feminine outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting, feminine beauty",
+        "style_male": "stylish icon, fashion-forward modern outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting, handsome presence",
         "enabled": True,
         "prompt_override": None
     }
 }
 
+# Helper function to detect gender from image
+def detect_gender_from_image(base64_image: str) -> dict:
+    """
+    Detect gender and approximate age from a base64 encoded image.
+    Returns: {'gender': 'female'/'male', 'age': int, 'confidence': float}
+    """
+    if not DEEPFACE_AVAILABLE:
+        logger.warning("DeepFace not available, returning default gender")
+        return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
+    
+    try:
+        # Decode base64 image
+        image_data = base64.b64decode(base64_image)
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            logger.error("Could not decode image for gender detection")
+            return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
+        
+        # Analyze face
+        analysis = DeepFace.analyze(img, actions=['gender', 'age'], enforce_detection=False)
+        
+        if analysis and len(analysis) > 0:
+            result = analysis[0] if isinstance(analysis, list) else analysis
+            dominant_gender = result.get('dominant_gender', 'unknown').lower()
+            # Map 'Woman' -> 'female', 'Man' -> 'male'
+            if dominant_gender in ['woman', 'female']:
+                gender = 'female'
+            elif dominant_gender in ['man', 'male']:
+                gender = 'male'
+            else:
+                gender = 'unknown'
+            
+            age = result.get('age', 25)
+            gender_probs = result.get('gender', {})
+            confidence = gender_probs.get('Woman', 0.5) if gender == 'female' else gender_probs.get('Man', 0.5)
+            
+            logger.info(f"Gender detected: {gender}, age: {age}, confidence: {confidence}")
+            return {'gender': gender, 'age': age, 'confidence': confidence}
+    except Exception as e:
+        logger.error(f"Error in gender detection: {str(e)}")
+    
+    return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
+
 @api_router.get("/")
 async def root():
     return {"message": "FIND ME AI API"}
+
+@api_router.post("/detect-gender")
+async def detect_gender(request: dict):
+    """Test endpoint for gender detection"""
+    try:
+        if 'image_base64' not in request:
+            raise HTTPException(status_code=400, detail="image_base64 is required")
+        
+        gender_info = detect_gender_from_image(request['image_base64'])
+        return {
+            "gender": gender_info['gender'],
+            "age": gender_info['age'],
+            "confidence": gender_info['confidence'],
+            "deepface_available": DEEPFACE_AVAILABLE
+        }
+    except Exception as e:
+        logger.error(f"Error in gender detection endpoint: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error detecting gender: {str(e)}")
 
 @api_router.get("/health")
 async def health_check():
@@ -231,29 +328,202 @@ Provide all output in English.
         # Parse the response
         persona_data = parse_persona_response(response, request.language)
         
-        # Generate avatar using OpenAI image generation
-        image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
+        # Generate avatar using Replicate InstantID (identity-preserving)
+        avatar_base64 = None
+        avatar_url = None
+        mode_used = '1-photo'
+        provider = 'replicate'
+        attempts = 0
+        max_attempts = 2
         
-        style_desc = theme_config['prompt_override'] or theme_config['style']
-        image_prompt = f"""
-Create a semi-realistic cinematic portrait avatar in 9:16 portrait orientation.
+        # Prepare images
+        all_images = [request.selfie_base64]
+        if request.additional_photos:
+            all_images.extend(request.additional_photos[:2])  # Max 3 total
+            mode_used = '3-photo' if len(all_images) >= 3 else '1-photo'
+        
+        # Detect gender from image if not provided by user
+        detected_gender = request.user_gender
+        gender_confidence = 1.0 if request.user_gender else 0.0
+        
+        if not detected_gender:
+            gender_info = detect_gender_from_image(request.selfie_base64)
+            detected_gender = gender_info['gender']
+            gender_confidence = gender_info['confidence']
+            logger.info(f"Gender detection result: {gender_info}")
+        
+        # Choose appropriate style based on gender
+        if theme_config['prompt_override']:
+            style_desc = theme_config['prompt_override']
+            style_used = 'custom_override'
+        elif detected_gender == 'female' and 'style_female' in theme_config:
+            style_desc = theme_config['style_female']
+            style_used = 'female_specific'
+            logger.info(f"Using female-specific style for {request.persona_theme}")
+        elif detected_gender == 'male' and 'style_male' in theme_config:
+            style_desc = theme_config['style_male']
+            style_used = 'male_specific'
+            logger.info(f"Using male-specific style for {request.persona_theme}")
+        else:
+            style_desc = theme_config['style']
+            style_used = 'default'
+            logger.info(f"Using default style for {request.persona_theme} (gender: {detected_gender})")
+        
+        # InstantID parameters based on similarity level
+        # identity_strength: 0-1, higher = more faithful to face
+        # style_strength: 0-1, higher = more stylized
+        similarity_params = {
+            'realistic': {
+                'ip_adapter_scale': 0.8,  # High identity preservation
+                'controlnet_conditioning_scale': 0.8,
+                'guidance_scale': 5.0,
+                'style_strength': 0.2,
+                'prompt_suffix': 'photorealistic portrait, professional headshot, exact facial features preserved, same person, same face'
+            },
+            'stylized': {
+                'ip_adapter_scale': 0.6,
+                'controlnet_conditioning_scale': 0.6,
+                'guidance_scale': 7.0,
+                'style_strength': 0.5,
+                'prompt_suffix': 'artistic portrait, cinematic lighting, stylized but recognizable face'
+            },
+            'creative': {
+                'ip_adapter_scale': 0.4,
+                'controlnet_conditioning_scale': 0.4,
+                'guidance_scale': 9.0,
+                'style_strength': 0.8,
+                'prompt_suffix': 'creative artistic portrait, fantasy style, distinctive character'
+            }
+        }
+        
+        params = similarity_params.get(request.similarity_level, similarity_params['realistic'])
+        
+        # Gender-specific prompt additions
+        gender_prompt_additions = {
+            'female': {
+                'positive': 'female, woman, feminine features, soft facial features, feminine beauty',
+                'negative': 'male, man, masculine, beard, moustache, stubble, suit and tie, businessman, adam\'s apple, broad shoulders, masculine jaw'
+            },
+            'male': {
+                'positive': 'male, man, masculine features, strong jawline',
+                'negative': 'female, woman, feminine, lipstick, makeup, feminine clothing, earrings, long eyelashes'
+            },
+            'unknown': {
+                'positive': '',
+                'negative': ''
+            }
+        }
+        
+        gender_additions = gender_prompt_additions.get(detected_gender, gender_prompt_additions['unknown'])
+        
+        # Try Replicate InstantID
+        if REPLICATE_API_TOKEN:
+            logger.info(f"Using Replicate InstantID with {mode_used}, similarity: {request.similarity_level}, gender: {detected_gender}")
+            
+            while attempts < max_attempts:
+                attempts += 1
+                try:
+                    # Convert base64 to data URI for Replicate
+                    face_image_uri = f"data:image/jpeg;base64,{all_images[0]}"
+                    
+                    # Build gender-aware prompt
+                    prompt = f"""portrait of a person, {gender_additions['positive']}, {style_desc}, {params['prompt_suffix']}, 
+                    high quality, detailed face, clean background, professional lighting"""
+                    
+                    negative_prompt = f"""different person, different face, celebrity, generic model, 
+                    stock photo, change identity, morph, blurry, deformed, bad anatomy, 
+                    disfigured, poorly drawn face, mutation, extra limbs, {gender_additions['negative']}"""
+                    
+                    logger.info(f"Avatar prompt: {prompt[:100]}...")
+                    logger.info(f"Avatar negative: {negative_prompt[:100]}...")
+                    
+                    # Set Replicate API token
+                    os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
+                    
+                    # Run InstantID model
+                    output = replicate.run(
+                        "zsxkib/instant-id:main",
+                        input={
+                            "image": face_image_uri,
+                            "prompt": prompt,
+                            "negative_prompt": negative_prompt,
+                            "ip_adapter_scale": params['ip_adapter_scale'],
+                            "controlnet_conditioning_scale": params['controlnet_conditioning_scale'],
+                            "guidance_scale": params['guidance_scale'],
+                            "num_inference_steps": 30,
+                            "seed": -1,  # Random seed for variation
+                            "output_format": "png",
+                            "output_quality": 90
+                        }
+                    )
+                    
+                    if output:
+                        # Output is a URL, download and convert to base64
+                        avatar_url = str(output) if isinstance(output, str) else str(output[0]) if output else None
+                        
+                        if avatar_url:
+                            async with httpx.AsyncClient() as client:
+                                response = await client.get(avatar_url, timeout=30.0)
+                                if response.status_code == 200:
+                                    avatar_base64 = base64.b64encode(response.content).decode('utf-8')
+                                    logger.info(f"InstantID avatar generated successfully on attempt {attempts}")
+                                    break
+                                    
+                except Exception as e:
+                    logger.error(f"Replicate InstantID attempt {attempts} failed: {str(e)}")
+                    if attempts >= max_attempts:
+                        logger.warning("Max attempts reached, falling back to OpenAI")
+        
+        # Fallback to OpenAI if Replicate failed or not configured
+        if not avatar_base64:
+            logger.info(f"Using OpenAI fallback for avatar generation (gender: {detected_gender})")
+            provider = 'openai'
+            
+            image_gen = OpenAIImageGeneration(api_key=EMERGENT_LLM_KEY)
+            
+            # Gender-specific base descriptions
+            gender_base = {
+                'female': "Create a portrait of a woman/female. Feminine features, soft facial structure.",
+                'male': "Create a portrait of a man/male. Masculine features, strong facial structure.",
+                'unknown': "Create a portrait of a person."
+            }
+            
+            similarity_modifiers = {
+                'realistic': "Photorealistic portrait that looks like a real specific person. Professional headshot quality. Same facial features as the reference.",
+                'stylized': "Semi-stylized artistic portrait with cinematic lighting. Recognizable face.",
+                'creative': "Artistic, creative portrait with fantasy elements."
+            }
+            
+            gender_instructions = gender_base.get(detected_gender, gender_base['unknown'])
+            
+            # Build prompt with strict gender enforcement
+            image_prompt = f"""
+{gender_instructions}
+{similarity_modifiers.get(request.similarity_level, similarity_modifiers['realistic'])}
+
 Style: {style_desc}
-High quality studio lighting, clean soft background, social media ready, professional photography.
-Focus on face and upper body, portrait orientation.
+Portrait orientation (9:16 aspect ratio).
+High quality studio lighting, clean soft background, social media ready.
+Focus on face and upper body.
+
+CRITICAL: The person in this image must be {detected_gender if detected_gender != 'unknown' else 'accurately represented'}.
+{'Do NOT create a male/masculine image. This must be a female/woman.' if detected_gender == 'female' else ''}
+{'Do NOT create a female/feminine image. This must be a male/man.' if detected_gender == 'male' else ''}
 """
+            
+            logger.info(f"OpenAI prompt (gender={detected_gender}): {image_prompt[:150]}...")
+            
+            images = await image_gen.generate_images(
+                prompt=image_prompt,
+                model="gpt-image-1",
+                number_of_images=1
+            )
+            
+            if images and len(images) > 0:
+                avatar_base64 = base64.b64encode(images[0]).decode('utf-8')
         
-        logger.info(f"Generating avatar with prompt: {image_prompt[:100]}...")
-        images = await image_gen.generate_images(
-            prompt=image_prompt,
-            model="gpt-image-1",
-            number_of_images=1
-        )
-        
-        if not images or len(images) == 0:
+        if not avatar_base64:
             raise HTTPException(status_code=500, detail="Avatar could not be generated")
-        
-        # Convert to base64
-        avatar_base64 = base64.b64encode(images[0]).decode('utf-8')
         
         # Create persona object
         persona = GeneratedPersona(
@@ -262,14 +532,22 @@ Focus on face and upper body, portrait orientation.
             traits=persona_data['traits'],
             share_quote=persona_data['quote'],
             avatar_base64=avatar_base64,
+            avatar_url=avatar_url,
             persona_theme=request.persona_theme,
-            language=request.language
+            language=request.language,
+            similarity_level=request.similarity_level,
+            mode_used=mode_used,
+            provider=provider,
+            attempts=attempts,
+            detected_gender=detected_gender,
+            gender_confidence=gender_confidence,
+            style_used=style_used
         )
         
         # Save to database
         await db.personas.insert_one(persona.dict())
         
-        logger.info(f"Persona created successfully: {persona.id}")
+        logger.info(f"Persona created successfully: {persona.id}, provider: {provider}, attempts: {attempts}")
         return persona
         
     except Exception as e:

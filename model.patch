@@ -1,170 +1,384 @@
 diff --git a/backend/server.py b/backend/server.py
-index 46e6782..b321072 100644
+index 428dd25..afb5d33 100644
 --- a/backend/server.py
 +++ b/backend/server.py
-@@ -710,7 +710,7 @@ Keep the SAME persona theme but change:
- - Traits (adjust to match {style} vibe)
- - Quote (new quote with {style} energy)
+@@ -88,6 +88,9 @@ class GeneratedPersona(BaseModel):
+     mode_used: str = '1-photo'  # '1-photo' or '3-photo'
+     provider: str = 'replicate'  # 'replicate' or 'openai'
+     attempts: int = 1
++    detected_gender: Optional[str] = None  # 'female', 'male', 'unknown'
++    gender_confidence: Optional[float] = None  # 0.0 to 1.0
++    style_used: Optional[str] = None  # Which style was actually used
+     created_at: datetime = Field(default_factory=datetime.utcnow)
  
--Output format (in {original['language']}):
-+Output format (in {original.get('language', 'tr')}):
- PERSONA NAME: [New stylish name]
- BIO: [2-3 sentences with {style} tone]
- TRAITS:
+ class ShareCardRequest(BaseModel):
+@@ -119,34 +122,105 @@ class PricingConfig(BaseModel):
+     persona_all_try: float = 299.0
+     persona_unlimited_try: float = 149.0
+ 
+-# Persona themes and their styles
++# Gender-aware persona themes with female and male variants
+ PERSONA_THEMES = {
+     "Midnight CEO": {
+-        "style": "powerful business leader, sophisticated dark suit, confident pose, luxurious office setting, dramatic lighting, cinematic portrait",
++        "style": "confident leader, powerful executive aura, sophisticated attire, dramatic lighting, cinematic portrait, luxury setting",
++        "style_female": "confident female leader, powerful executive aura, sophisticated elegant attire, dramatic lighting, cinematic portrait, luxury setting, feminine power",
++        "style_male": "confident male leader, powerful executive aura, sophisticated suit, dramatic lighting, cinematic portrait, luxury setting, masculine presence",
+         "enabled": True,
+         "prompt_override": None
+     },
+     "Dark Charmer": {
+         "style": "mysterious and charismatic, elegant dark fashion, intense gaze, moody atmosphere, artistic portrait, cinematic lighting",
++        "style_female": "mysterious and charismatic woman, elegant dark fashion, intense feminine gaze, moody atmosphere, artistic portrait, cinematic lighting, seductive elegance",
++        "style_male": "mysterious and charismatic man, elegant dark fashion, intense masculine gaze, moody atmosphere, artistic portrait, cinematic lighting, charming presence",
+         "enabled": True,
+         "prompt_override": None
+     },
+     "Alpha Strategist": {
+         "style": "strategic thinker, sharp professional attire, commanding presence, modern setting, confident expression, high-quality portrait",
++        "style_female": "strategic thinker, sharp professional feminine attire, commanding female presence, modern setting, confident expression, high-quality portrait, power woman",
++        "style_male": "strategic thinker, sharp professional suit, commanding male presence, modern setting, confident expression, high-quality portrait, business leader",
+         "enabled": True,
+         "prompt_override": None
+     },
+     "Glam Diva": {
+         "style": "glamorous and stylish, fashion-forward outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting",
++        "style_female": "glamorous diva, fashion-forward feminine outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting, feminine beauty",
++        "style_male": "stylish icon, fashion-forward modern outfit, radiant expression, luxurious background, editorial style portrait, stunning lighting, handsome presence",
+         "enabled": True,
+         "prompt_override": None
+     }
+ }
+ 
++# Helper function to detect gender from image
++def detect_gender_from_image(base64_image: str) -> dict:
++    """
++    Detect gender and approximate age from a base64 encoded image.
++    Returns: {'gender': 'female'/'male', 'age': int, 'confidence': float}
++    """
++    if not DEEPFACE_AVAILABLE:
++        logger.warning("DeepFace not available, returning default gender")
++        return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
++    
++    try:
++        # Decode base64 image
++        image_data = base64.b64decode(base64_image)
++        nparr = np.frombuffer(image_data, np.uint8)
++        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
++        
++        if img is None:
++            logger.error("Could not decode image for gender detection")
++            return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
++        
++        # Analyze face
++        analysis = DeepFace.analyze(img, actions=['gender', 'age'], enforce_detection=False)
++        
++        if analysis and len(analysis) > 0:
++            result = analysis[0] if isinstance(analysis, list) else analysis
++            dominant_gender = result.get('dominant_gender', 'unknown').lower()
++            # Map 'Woman' -> 'female', 'Man' -> 'male'
++            if dominant_gender in ['woman', 'female']:
++                gender = 'female'
++            elif dominant_gender in ['man', 'male']:
++                gender = 'male'
++            else:
++                gender = 'unknown'
++            
++            age = result.get('age', 25)
++            gender_probs = result.get('gender', {})
++            confidence = gender_probs.get('Woman', 0.5) if gender == 'female' else gender_probs.get('Man', 0.5)
++            
++            logger.info(f"Gender detected: {gender}, age: {age}, confidence: {confidence}")
++            return {'gender': gender, 'age': age, 'confidence': confidence}
++    except Exception as e:
++        logger.error(f"Error in gender detection: {str(e)}")
++    
++    return {'gender': 'unknown', 'age': 25, 'confidence': 0.0}
++
+ @api_router.get("/")
+ async def root():
+     return {"message": "FIND ME AI API"}
+ 
++@api_router.post("/detect-gender")
++async def detect_gender(request: dict):
++    """Test endpoint for gender detection"""
++    try:
++        if 'image_base64' not in request:
++            raise HTTPException(status_code=400, detail="image_base64 is required")
++        
++        gender_info = detect_gender_from_image(request['image_base64'])
++        return {
++            "gender": gender_info['gender'],
++            "age": gender_info['age'],
++            "confidence": gender_info['confidence'],
++            "deepface_available": DEEPFACE_AVAILABLE
++        }
++    except Exception as e:
++        logger.error(f"Error in gender detection endpoint: {str(e)}")
++        raise HTTPException(status_code=500, detail=f"Error detecting gender: {str(e)}")
++
+ @api_router.get("/health")
+ async def health_check():
+     """Health check endpoint for monitoring"""
+@@ -268,7 +342,32 @@ Provide all output in English.
+             all_images.extend(request.additional_photos[:2])  # Max 3 total
+             mode_used = '3-photo' if len(all_images) >= 3 else '1-photo'
+         
+-        style_desc = theme_config['prompt_override'] or theme_config['style']
++        # Detect gender from image if not provided by user
++        detected_gender = request.user_gender
++        gender_confidence = 1.0 if request.user_gender else 0.0
++        
++        if not detected_gender:
++            gender_info = detect_gender_from_image(request.selfie_base64)
++            detected_gender = gender_info['gender']
++            gender_confidence = gender_info['confidence']
++            logger.info(f"Gender detection result: {gender_info}")
++        
++        # Choose appropriate style based on gender
++        if theme_config['prompt_override']:
++            style_desc = theme_config['prompt_override']
++            style_used = 'custom_override'
++        elif detected_gender == 'female' and 'style_female' in theme_config:
++            style_desc = theme_config['style_female']
++            style_used = 'female_specific'
++            logger.info(f"Using female-specific style for {request.persona_theme}")
++        elif detected_gender == 'male' and 'style_male' in theme_config:
++            style_desc = theme_config['style_male']
++            style_used = 'male_specific'
++            logger.info(f"Using male-specific style for {request.persona_theme}")
++        else:
++            style_desc = theme_config['style']
++            style_used = 'default'
++            logger.info(f"Using default style for {request.persona_theme} (gender: {detected_gender})")
+         
+         # InstantID parameters based on similarity level
+         # identity_strength: 0-1, higher = more faithful to face
+@@ -400,7 +499,10 @@ Focus on face and upper body.
+             similarity_level=request.similarity_level,
+             mode_used=mode_used,
+             provider=provider,
+-            attempts=attempts
++            attempts=attempts,
++            detected_gender=detected_gender,
++            gender_confidence=gender_confidence,
++            style_used=style_used
+         )
+         
+         # Save to database
 diff --git a/model.patch b/model.patch
-index 3e3a63a..e69de29 100644
+index 0acbb28..12c785a 100644
 --- a/model.patch
 +++ b/model.patch
-@@ -1,91 +0,0 @@
+@@ -1,170 +0,0 @@
+-diff --git a/backend/server.py b/backend/server.py
+-index 46e6782..b321072 100644
+---- a/backend/server.py
+-+++ b/backend/server.py
+-@@ -710,7 +710,7 @@ Keep the SAME persona theme but change:
+- - Traits (adjust to match {style} vibe)
+- - Quote (new quote with {style} energy)
+- 
+--Output format (in {original['language']}):
+-+Output format (in {original.get('language', 'tr')}):
+- PERSONA NAME: [New stylish name]
+- BIO: [2-3 sentences with {style} tone]
+- TRAITS:
 -diff --git a/model.patch b/model.patch
--index ddd803d..e69de29 100644
+-index 3e3a63a..e69de29 100644
 ---- a/model.patch
 -+++ b/model.patch
--@@ -1,86 +0,0 @@
---diff --git a/test_result.md b/test_result.md
---index 187cba4..fe5a5d1 100644
------ a/test_result.md
---+++ b/test_result.md
---@@ -100,4 +100,78 @@
--- 
--- #====================================================================================================
--- # Testing Data - Main Agent and testing sub agent both should log testing data below this section
----#====================================================================================================
---\ No newline at end of file
---+#====================================================================================================
---+
---+user_problem_statement: "Test FIND ME AI backend API endpoints for AI persona generation app"
---+
---+backend:
---+  - task: "Health Check API Endpoint"
---+    implemented: true
---+    working: true
---+    file: "server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+      - working: true
---+        agent: "testing"
---+        comment: "GET /api/ endpoint tested successfully. Returns correct message 'FIND ME AI API'. Response time: <1s"
---+
---+  - task: "Generate Persona API Endpoint"
---+    implemented: true
---+    working: true
---+    file: "server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+      - working: true
---+        agent: "testing"
---+        comment: "POST /api/generate-persona tested successfully. Generated persona 'Gölgeler Prensi' with ID 673811db-a731-40ad-a4a4-e66747b91c49 in 21.6s. Emergent LLM integration working for both text (GPT-4o) and image generation (gpt-image-1). All required fields present: id, persona_name, bio_paragraph, traits, share_quote, avatar_base64. Avatar image generated and returned as base64."
---+
---+  - task: "List Personas API Endpoint"
---+    implemented: true
---+    working: true
---+    file: "server.py"
---+    stuck_count: 0
---+    priority: "medium"
---+    needs_retesting: false
---+    status_history:
---+      - working: true
---+        agent: "testing"
---+        comment: "GET /api/personas tested successfully. Returns array of personas. Retrieved 1 persona from database correctly."
---+
---+  - task: "Get Persona by ID API Endpoint"
---+    implemented: true
---+    working: true
---+    file: "server.py"
---+    stuck_count: 0
---+    priority: "medium"
---+    needs_retesting: false
---+    status_history:
---+      - working: true
---+        agent: "testing"
---+        comment: "GET /api/personas/{id} tested successfully. Retrieved specific persona by ID 673811db-a731-40ad-a4a4-e66747b91c49. Returns correct persona data with all fields."
---+
---+frontend:
---+  # No frontend testing performed as per instructions
---+
---+metadata:
---+  created_by: "testing_agent"
---+  version: "1.0"
---+  test_sequence: 1
---+  run_ui: false
---+
---+test_plan:
---+  current_focus:
---+    - "Health Check API Endpoint"
---+    - "Generate Persona API Endpoint"
---+    - "List Personas API Endpoint"
---+    - "Get Persona by ID API Endpoint"
---+  stuck_tasks: []
---+  test_all: true
---+  test_priority: "high_first"
---+
---+agent_communication:
---+  - agent: "testing"
---+    message: "Completed comprehensive backend API testing for FIND ME AI. All 4 endpoints tested successfully: health check, persona generation (with AI text and image generation), list personas, and get persona by ID. Emergent LLM integration working correctly for both GPT-4o text generation and gpt-image-1 image generation. Persona generation completed in 21.6 seconds with proper timeout handling. MongoDB integration working correctly for data persistence. No critical issues found."
---\ No newline at end of file
-diff --git a/test_result.md b/test_result.md
-index fe5a5d1..4057991 100644
---- a/test_result.md
-+++ b/test_result.md
-@@ -153,6 +153,33 @@ backend:
-         agent: "testing"
-         comment: "GET /api/personas/{id} tested successfully. Retrieved specific persona by ID 673811db-a731-40ad-a4a4-e66747b91c49. Returns correct persona data with all fields."
- 
-+  - task: "Story Pack Generation API Endpoint (Phase 3)"
-+    implemented: true
-+    working: true
-+    file: "server.py"
-+    stuck_count: 0
-+    priority: "high"
-+    needs_retesting: false
-+    status_history:
-+      - working: true
-+        agent: "testing"
-+        comment: "POST /api/generate-story-pack tested successfully. Generated 3 slides (1080x1920 9:16 format) in 0.4s using existing persona 66cdf000-2b6a-4631-ad25-e6f142317ea7. All slides returned as valid base64 images. Template: default. No AI calls needed - uses PIL/Pillow for image generation."
+-@@ -1,91 +0,0 @@
+--diff --git a/model.patch b/model.patch
+--index ddd803d..e69de29 100644
+----- a/model.patch
+--+++ b/model.patch
+--@@ -1,86 +0,0 @@
+---diff --git a/test_result.md b/test_result.md
+---index 187cba4..fe5a5d1 100644
+------ a/test_result.md
+---+++ b/test_result.md
+---@@ -100,4 +100,78 @@
+--- 
+--- #====================================================================================================
+--- # Testing Data - Main Agent and testing sub agent both should log testing data below this section
+----#====================================================================================================
+---\ No newline at end of file
+---+#====================================================================================================
+---+
+---+user_problem_statement: "Test FIND ME AI backend API endpoints for AI persona generation app"
+---+
+---+backend:
+---+  - task: "Health Check API Endpoint"
+---+    implemented: true
+---+    working: true
+---+    file: "server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+      - working: true
+---+        agent: "testing"
+---+        comment: "GET /api/ endpoint tested successfully. Returns correct message 'FIND ME AI API'. Response time: <1s"
+---+
+---+  - task: "Generate Persona API Endpoint"
+---+    implemented: true
+---+    working: true
+---+    file: "server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+      - working: true
+---+        agent: "testing"
+---+        comment: "POST /api/generate-persona tested successfully. Generated persona 'Gölgeler Prensi' with ID 673811db-a731-40ad-a4a4-e66747b91c49 in 21.6s. Emergent LLM integration working for both text (GPT-4o) and image generation (gpt-image-1). All required fields present: id, persona_name, bio_paragraph, traits, share_quote, avatar_base64. Avatar image generated and returned as base64."
+---+
+---+  - task: "List Personas API Endpoint"
+---+    implemented: true
+---+    working: true
+---+    file: "server.py"
+---+    stuck_count: 0
+---+    priority: "medium"
+---+    needs_retesting: false
+---+    status_history:
+---+      - working: true
+---+        agent: "testing"
+---+        comment: "GET /api/personas tested successfully. Returns array of personas. Retrieved 1 persona from database correctly."
+---+
+---+  - task: "Get Persona by ID API Endpoint"
+---+    implemented: true
+---+    working: true
+---+    file: "server.py"
+---+    stuck_count: 0
+---+    priority: "medium"
+---+    needs_retesting: false
+---+    status_history:
+---+      - working: true
+---+        agent: "testing"
+---+        comment: "GET /api/personas/{id} tested successfully. Retrieved specific persona by ID 673811db-a731-40ad-a4a4-e66747b91c49. Returns correct persona data with all fields."
+---+
+---+frontend:
+---+  # No frontend testing performed as per instructions
+---+
+---+metadata:
+---+  created_by: "testing_agent"
+---+  version: "1.0"
+---+  test_sequence: 1
+---+  run_ui: false
+---+
+---+test_plan:
+---+  current_focus:
+---+    - "Health Check API Endpoint"
+---+    - "Generate Persona API Endpoint"
+---+    - "List Personas API Endpoint"
+---+    - "Get Persona by ID API Endpoint"
+---+  stuck_tasks: []
+---+  test_all: true
+---+  test_priority: "high_first"
+---+
+---+agent_communication:
+---+  - agent: "testing"
+---+    message: "Completed comprehensive backend API testing for FIND ME AI. All 4 endpoints tested successfully: health check, persona generation (with AI text and image generation), list personas, and get persona by ID. Emergent LLM integration working correctly for both GPT-4o text generation and gpt-image-1 image generation. Persona generation completed in 21.6 seconds with proper timeout handling. MongoDB integration working correctly for data persistence. No critical issues found."
+---\ No newline at end of file
+-diff --git a/test_result.md b/test_result.md
+-index fe5a5d1..4057991 100644
+---- a/test_result.md
+-+++ b/test_result.md
+-@@ -153,6 +153,33 @@ backend:
+-         agent: "testing"
+-         comment: "GET /api/personas/{id} tested successfully. Retrieved specific persona by ID 673811db-a731-40ad-a4a4-e66747b91c49. Returns correct persona data with all fields."
+- 
+-+  - task: "Story Pack Generation API Endpoint (Phase 3)"
+-+    implemented: true
+-+    working: true
+-+    file: "server.py"
+-+    stuck_count: 0
+-+    priority: "high"
+-+    needs_retesting: false
+-+    status_history:
+-+      - working: true
+-+        agent: "testing"
+-+        comment: "POST /api/generate-story-pack tested successfully. Generated 3 slides (1080x1920 9:16 format) in 0.4s using existing persona 66cdf000-2b6a-4631-ad25-e6f142317ea7. All slides returned as valid base64 images. Template: default. No AI calls needed - uses PIL/Pillow for image generation."
+-+
+-+  - task: "Remix Persona API Endpoint (Phase 3)"
+-+    implemented: true
+-+    working: true
+-+    file: "server.py"
+-+    stuck_count: 1
+-+    priority: "high"
+-+    needs_retesting: false
+-+    status_history:
+-+      - working: false
+-+        agent: "testing"
+-+        comment: "Initial test failed with KeyError: 'language' in remix endpoint. Bug found on line 713 using direct dictionary access instead of .get() method."
+-+      - working: true
+-+        agent: "testing"
+-+        comment: "POST /api/remix-persona tested successfully after bug fix. Generated 3 persona variations in 12.5s using GPT-4o. Variations: 'Gizemli Persona' (dramatic), 'Akşam Melodisi' (softer), 'Gölge İsyan' (rebellious). Fixed KeyError by changing original['language'] to original.get('language', 'tr') on line 713. All variations saved to persona_variations collection."
+-+
+- frontend:
+-   # No frontend testing performed as per instructions
+- 
+-@@ -164,14 +191,14 @@ metadata:
+- 
+- test_plan:
+-   current_focus:
+--    - "Health Check API Endpoint"
+--    - "Generate Persona API Endpoint"
+--    - "List Personas API Endpoint"
+--    - "Get Persona by ID API Endpoint"
+-+    - "Story Pack Generation API Endpoint (Phase 3)"
+-+    - "Remix Persona API Endpoint (Phase 3)"
+-   stuck_tasks: []
+--  test_all: true
+-+  test_all: false
+-   test_priority: "high_first"
+- 
+- agent_communication:
+-   - agent: "testing"
+--    message: "Completed comprehensive backend API testing for FIND ME AI. All 4 endpoints tested successfully: health check, persona generation (with AI text and image generation), list personas, and get persona by ID. Emergent LLM integration working correctly for both GPT-4o text generation and gpt-image-1 image generation. Persona generation completed in 21.6 seconds with proper timeout handling. MongoDB integration working correctly for data persistence. No critical issues found."
+-\ No newline at end of file
+-+    message: "Completed comprehensive backend API testing for FIND ME AI. All 4 endpoints tested successfully: health check, persona generation (with AI text and image generation), list personas, and get persona by ID. Emergent LLM integration working correctly for both GPT-4o text generation and gpt-image-1 image generation. Persona generation completed in 21.6 seconds with proper timeout handling. MongoDB integration working correctly for data persistence. No critical issues found."
+-+  - agent: "testing"
+-+    message: "Completed Phase 3 viral features testing. STORY PACK GENERATION: ✅ Working perfectly - generates 3 Instagram/TikTok slides (9:16 format) in 0.4s using PIL/Pillow. No AI calls needed, uses existing persona data. REMIX PERSONA: ✅ Working after bug fix - generates 3 persona variations in 12.5s using GPT-4o. Fixed KeyError on line 713 by changing original['language'] to original.get('language', 'tr'). Both endpoints fully functional for viral growth features. All Phase 3 tests passing (2/2)."
+-\ No newline at end of file
+diff --git a/test_gender_detection.py b/test_gender_detection.py
+new file mode 100644
+index 0000000..b8a85a0
+--- /dev/null
++++ b/test_gender_detection.py
+@@ -0,0 +1,34 @@
++#!/usr/bin/env python3
++"""
++Simple test script to verify gender detection functionality
++"""
++import sys
++import os
++sys.path.append('/app/backend')
 +
-+  - task: "Remix Persona API Endpoint (Phase 3)"
-+    implemented: true
-+    working: true
-+    file: "server.py"
-+    stuck_count: 1
-+    priority: "high"
-+    needs_retesting: false
-+    status_history:
-+      - working: false
-+        agent: "testing"
-+        comment: "Initial test failed with KeyError: 'language' in remix endpoint. Bug found on line 713 using direct dictionary access instead of .get() method."
-+      - working: true
-+        agent: "testing"
-+        comment: "POST /api/remix-persona tested successfully after bug fix. Generated 3 persona variations in 12.5s using GPT-4o. Variations: 'Gizemli Persona' (dramatic), 'Akşam Melodisi' (softer), 'Gölge İsyan' (rebellious). Fixed KeyError by changing original['language'] to original.get('language', 'tr') on line 713. All variations saved to persona_variations collection."
-+
- frontend:
-   # No frontend testing performed as per instructions
- 
-@@ -164,14 +191,14 @@ metadata:
- 
- test_plan:
-   current_focus:
--    - "Health Check API Endpoint"
--    - "Generate Persona API Endpoint"
--    - "List Personas API Endpoint"
--    - "Get Persona by ID API Endpoint"
-+    - "Story Pack Generation API Endpoint (Phase 3)"
-+    - "Remix Persona API Endpoint (Phase 3)"
-   stuck_tasks: []
--  test_all: true
-+  test_all: false
-   test_priority: "high_first"
- 
- agent_communication:
-   - agent: "testing"
--    message: "Completed comprehensive backend API testing for FIND ME AI. All 4 endpoints tested successfully: health check, persona generation (with AI text and image generation), list personas, and get persona by ID. Emergent LLM integration working correctly for both GPT-4o text generation and gpt-image-1 image generation. Persona generation completed in 21.6 seconds with proper timeout handling. MongoDB integration working correctly for data persistence. No critical issues found."
-\ No newline at end of file
-+    message: "Completed comprehensive backend API testing for FIND ME AI. All 4 endpoints tested successfully: health check, persona generation (with AI text and image generation), list personas, and get persona by ID. Emergent LLM integration working correctly for both GPT-4o text generation and gpt-image-1 image generation. Persona generation completed in 21.6 seconds with proper timeout handling. MongoDB integration working correctly for data persistence. No critical issues found."
-+  - agent: "testing"
-+    message: "Completed Phase 3 viral features testing. STORY PACK GENERATION: ✅ Working perfectly - generates 3 Instagram/TikTok slides (9:16 format) in 0.4s using PIL/Pillow. No AI calls needed, uses existing persona data. REMIX PERSONA: ✅ Working after bug fix - generates 3 persona variations in 12.5s using GPT-4o. Fixed KeyError on line 713 by changing original['language'] to original.get('language', 'tr'). Both endpoints fully functional for viral growth features. All Phase 3 tests passing (2/2)."
++# Test the gender detection function
++try:
++    from server import detect_gender_from_image, DEEPFACE_AVAILABLE
++    print(f"DeepFace available: {DEEPFACE_AVAILABLE}")
++    
++    # Test with a simple base64 image (1x1 pixel)
++    import base64
++    from PIL import Image
++    from io import BytesIO
++    
++    # Create a simple test image
++    img = Image.new('RGB', (100, 100), color='white')
++    buffer = BytesIO()
++    img.save(buffer, format='JPEG')
++    test_image_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
++    
++    print("Testing gender detection with simple image...")
++    result = detect_gender_from_image(test_image_b64)
++    print(f"Result: {result}")
++    
++    print("Gender detection test completed successfully!")
++    
++except Exception as e:
++    print(f"Error testing gender detection: {e}")
++    import traceback
++    traceback.print_exc()
 \ No newline at end of file
