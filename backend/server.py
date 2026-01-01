@@ -1131,6 +1131,297 @@ Create a {style} variation of this persona.
         raise HTTPException(status_code=500, detail=f"Error remixing persona: {str(e)}")
 
 
+# ============================================
+# MONETIZATION API ENDPOINTS
+# ============================================
+
+async def get_or_create_user_plan(user_id: str) -> dict:
+    """Get user plan from DB or create default free plan"""
+    user_plan = await db.user_plans.find_one({"user_id": user_id})
+    
+    if not user_plan:
+        from datetime import date
+        user_plan = {
+            "user_id": user_id,
+            "plan": "free",
+            "credits": 0,
+            "daily_generations": 0,
+            "daily_reset_date": date.today().isoformat(),
+            "total_generations": 0,
+            "subscription_expires": None,
+            "created_at": datetime.utcnow()
+        }
+        await db.user_plans.insert_one(user_plan)
+    
+    # Check if daily reset needed
+    from datetime import date
+    today = date.today().isoformat()
+    if user_plan.get('daily_reset_date') != today:
+        user_plan['daily_generations'] = 0
+        user_plan['daily_reset_date'] = today
+        await db.user_plans.update_one(
+            {"user_id": user_id},
+            {"$set": {"daily_generations": 0, "daily_reset_date": today}}
+        )
+    
+    return user_plan
+
+@api_router.get("/user/plan/{user_id}")
+async def get_user_plan(user_id: str):
+    """Get user's current plan, credits, and daily usage"""
+    user_plan = await get_or_create_user_plan(user_id)
+    
+    # Determine daily limit
+    if user_plan['plan'] in ['pro_monthly', 'pro_yearly']:
+        daily_limit = -1  # Unlimited
+    else:
+        daily_limit = FREE_DAILY_LIMIT
+    
+    remaining_today = max(0, daily_limit - user_plan['daily_generations']) if daily_limit > 0 else -1
+    
+    return {
+        "user_id": user_id,
+        "plan": user_plan['plan'],
+        "credits": user_plan['credits'],
+        "daily_generations": user_plan['daily_generations'],
+        "daily_limit": daily_limit,
+        "remaining_today": remaining_today,
+        "total_generations": user_plan['total_generations'],
+        "subscription_expires": user_plan.get('subscription_expires'),
+        "can_generate": remaining_today != 0 or user_plan['credits'] > 0
+    }
+
+@api_router.post("/user/check-generation/{user_id}")
+async def check_can_generate(user_id: str):
+    """Check if user can generate a persona (limit/credit check)"""
+    user_plan = await get_or_create_user_plan(user_id)
+    
+    # Pro users have unlimited
+    if user_plan['plan'] in ['pro_monthly', 'pro_yearly']:
+        return {"can_generate": True, "use_credit": False, "message": "PRO kullanıcı - limitsiz üretim"}
+    
+    # Check daily limit
+    if user_plan['daily_generations'] < FREE_DAILY_LIMIT:
+        return {"can_generate": True, "use_credit": False, "remaining": FREE_DAILY_LIMIT - user_plan['daily_generations']}
+    
+    # Check credits
+    if user_plan['credits'] > 0:
+        return {"can_generate": True, "use_credit": True, "credits": user_plan['credits'], "message": "Kredi kullanılacak"}
+    
+    return {
+        "can_generate": False,
+        "use_credit": False,
+        "message": "Günlük limit doldu. PRO olun veya kredi satın alın.",
+        "upgrade_options": {
+            "subscriptions": [s.dict() for s in SUBSCRIPTION_PLANS],
+            "credit_packages": [c.dict() for c in CREDIT_PACKAGES]
+        }
+    }
+
+@api_router.post("/user/consume-generation/{user_id}")
+async def consume_generation(user_id: str, use_credit: bool = False):
+    """Consume a generation (call after successful persona creation)"""
+    user_plan = await get_or_create_user_plan(user_id)
+    
+    update_fields = {"total_generations": user_plan['total_generations'] + 1}
+    
+    if use_credit and user_plan['credits'] > 0:
+        update_fields['credits'] = user_plan['credits'] - 1
+    elif user_plan['plan'] not in ['pro_monthly', 'pro_yearly']:
+        update_fields['daily_generations'] = user_plan['daily_generations'] + 1
+    
+    await db.user_plans.update_one(
+        {"user_id": user_id},
+        {"$set": update_fields}
+    )
+    
+    # Log generation
+    await db.generation_logs.insert_one({
+        "user_id": user_id,
+        "timestamp": datetime.utcnow(),
+        "used_credit": use_credit,
+        "plan": user_plan['plan']
+    })
+    
+    return {"success": True}
+
+@api_router.post("/user/add-credits/{user_id}")
+async def add_credits(user_id: str, package_id: str):
+    """Add credits to user account after purchase validation"""
+    package = next((p for p in CREDIT_PACKAGES if p.id == package_id), None)
+    if not package:
+        raise HTTPException(status_code=400, detail="Invalid package ID")
+    
+    user_plan = await get_or_create_user_plan(user_id)
+    new_credits = user_plan['credits'] + package.credits
+    
+    await db.user_plans.update_one(
+        {"user_id": user_id},
+        {"$set": {"credits": new_credits}}
+    )
+    
+    # Log purchase
+    await db.credit_purchases.insert_one({
+        "user_id": user_id,
+        "package_id": package_id,
+        "credits_added": package.credits,
+        "timestamp": datetime.utcnow()
+    })
+    
+    return {"success": True, "new_credits": new_credits}
+
+@api_router.post("/user/subscribe/{user_id}")
+async def subscribe_user(user_id: str, plan_id: str):
+    """Subscribe user to a plan after purchase validation"""
+    plan = next((p for p in SUBSCRIPTION_PLANS if p.id == plan_id), None)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid plan ID")
+    
+    from datetime import timedelta
+    expires = datetime.utcnow() + timedelta(days=30 if 'monthly' in plan_id else 365)
+    
+    await db.user_plans.update_one(
+        {"user_id": user_id},
+        {"$set": {"plan": plan_id, "subscription_expires": expires.isoformat()}}
+    )
+    
+    # Log subscription
+    await db.subscriptions.insert_one({
+        "user_id": user_id,
+        "plan_id": plan_id,
+        "started_at": datetime.utcnow(),
+        "expires_at": expires
+    })
+    
+    return {"success": True, "plan": plan_id, "expires": expires.isoformat()}
+
+@api_router.get("/pricing")
+async def get_pricing():
+    """Get all pricing options"""
+    return {
+        "free_daily_limit": FREE_DAILY_LIMIT,
+        "subscriptions": [s.dict() for s in SUBSCRIPTION_PLANS],
+        "credit_packages": [c.dict() for c in CREDIT_PACKAGES]
+    }
+
+# ============================================
+# ADMIN API ENDPOINTS
+# ============================================
+
+@api_router.get("/admin/users")
+async def admin_get_users(api_key: str = Header(..., alias="X-Admin-Key")):
+    """Get all users with their plans and stats"""
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    users = await db.user_plans.find({}).to_list(1000)
+    
+    return {
+        "total_users": len(users),
+        "users": [
+            {
+                "user_id": u['user_id'],
+                "plan": u['plan'],
+                "credits": u['credits'],
+                "daily_generations": u['daily_generations'],
+                "total_generations": u['total_generations'],
+                "subscription_expires": u.get('subscription_expires'),
+                "created_at": u.get('created_at')
+            }
+            for u in users
+        ]
+    }
+
+@api_router.get("/admin/stats")
+async def admin_get_stats(api_key: str = Header(..., alias="X-Admin-Key")):
+    """Get overall statistics"""
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    total_users = await db.user_plans.count_documents({})
+    pro_users = await db.user_plans.count_documents({"plan": {"$in": ["pro_monthly", "pro_yearly"]}})
+    total_personas = await db.personas.count_documents({})
+    total_generations = await db.generation_logs.count_documents({})
+    
+    # Recent errors
+    recent_errors = await db.error_logs.find({}).sort("timestamp", -1).limit(10).to_list(10)
+    
+    return {
+        "total_users": total_users,
+        "pro_users": pro_users,
+        "free_users": total_users - pro_users,
+        "total_personas": total_personas,
+        "total_generations": total_generations,
+        "recent_errors": recent_errors
+    }
+
+@api_router.get("/admin/generation-logs")
+async def admin_get_generation_logs(
+    api_key: str = Header(..., alias="X-Admin-Key"),
+    limit: int = 100
+):
+    """Get recent generation logs"""
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    logs = await db.generation_logs.find({}).sort("timestamp", -1).limit(limit).to_list(limit)
+    
+    return {"logs": logs}
+
+@api_router.post("/admin/give-credits")
+async def admin_give_credits(
+    user_id: str,
+    credits: int,
+    api_key: str = Header(..., alias="X-Admin-Key")
+):
+    """Admin: Give credits to a user (promo)"""
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    user_plan = await get_or_create_user_plan(user_id)
+    new_credits = user_plan['credits'] + credits
+    
+    await db.user_plans.update_one(
+        {"user_id": user_id},
+        {"$set": {"credits": new_credits}}
+    )
+    
+    await db.admin_actions.insert_one({
+        "action": "give_credits",
+        "user_id": user_id,
+        "credits": credits,
+        "timestamp": datetime.utcnow()
+    })
+    
+    return {"success": True, "user_id": user_id, "new_credits": new_credits}
+
+@api_router.post("/admin/set-plan")
+async def admin_set_plan(
+    user_id: str,
+    plan: str,
+    api_key: str = Header(..., alias="X-Admin-Key")
+):
+    """Admin: Set user plan manually"""
+    if api_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    
+    if plan not in ['free', 'pro_monthly', 'pro_yearly']:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+    
+    expires = None
+    if plan != 'free':
+        from datetime import timedelta
+        expires = (datetime.utcnow() + timedelta(days=365)).isoformat()
+    
+    await db.user_plans.update_one(
+        {"user_id": user_id},
+        {"$set": {"plan": plan, "subscription_expires": expires}},
+        upsert=True
+    )
+    
+    return {"success": True, "user_id": user_id, "plan": plan}
+
+
 def parse_persona_response(response: str, language: str = 'tr') -> dict:
     """Parse the LLM response to extract persona data"""
     try:
