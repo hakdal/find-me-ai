@@ -1,45 +1,182 @@
 workflows:
-  android-release:
-    name: Android Release AAB
+  android_release_aab:
+    name: Android Release AAB (Play Store)
     max_build_duration: 60
     instance_type: linux_x2
     environment:
       java: 17
       node: 18
       groups:
-        - android_credentials
+        - android-signing
       vars:
-        EXPO_PUBLIC_BACKEND_URL: "https://ai-alter.preview.emergentagent.com"
+        EXPO_PUBLIC_BACKEND_URL: "https://alter-ego-app-1.preview.emergentagent.com"
+    
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    
     scripts:
       - name: Install dependencies
         script: |
           cd frontend
-          npm install
+          yarn install
 
-      - name: Setup Expo
+      - name: Expo Prebuild (Generate Android Project)
         script: |
           cd frontend
           npx expo prebuild --platform android --clean
 
-      - name: Set up keystore
+      - name: Decode Keystore
         script: |
-          echo $CM_KEYSTORE | base64 --decode > $CM_BUILD_DIR/frontend/android/app/keystore.jks
-          cat >> $CM_BUILD_DIR/frontend/android/gradle.properties <<EOF
-          MYAPP_UPLOAD_STORE_FILE=keystore.jks
-          MYAPP_UPLOAD_KEY_ALIAS=$CM_KEY_ALIAS
-          MYAPP_UPLOAD_STORE_PASSWORD=$CM_KEYSTORE_PASSWORD
-          MYAPP_UPLOAD_KEY_PASSWORD=$CM_KEY_PASSWORD
-          EOF
+          # Decode keystore to a known location
+          KEYSTORE_PATH="$CM_BUILD_DIR/frontend/android/app/release-keystore.jks"
+          echo $CM_KEYSTORE | base64 --decode > "$KEYSTORE_PATH"
+          echo "✅ Keystore decoded to: $KEYSTORE_PATH"
+          ls -la "$KEYSTORE_PATH"
+
+      - name: Configure Release Signing
+        script: |
+          cd frontend/android/app
+          
+          # Create the signingConfigs and update build.gradle
+          # First, let's check what build.gradle looks like
+          echo "=== Original build.gradle structure ==="
+          head -100 build.gradle
+          
+          # Create a Python script to properly modify build.gradle
+          cat > /tmp/configure_signing.py << 'PYTHON_SCRIPT'
+          import re
+          import os
+          
+          build_gradle_path = "build.gradle"
+          
+          with open(build_gradle_path, 'r') as f:
+              content = f.read()
+          
+          # Check if signingConfigs already exists
+          if 'signingConfigs' in content:
+              print("signingConfigs already exists, updating...")
+              # Remove existing signingConfigs block
+              content = re.sub(r'signingConfigs\s*\{[^}]*release\s*\{[^}]*\}[^}]*\}', '', content, flags=re.DOTALL)
+          
+          # Signing config to add
+          signing_config = '''
+              signingConfigs {
+                  release {
+                      storeFile file("release-keystore.jks")
+                      storePassword System.getenv("CM_KEYSTORE_PASSWORD") ?: project.findProperty("FINDMEAI_STORE_PASSWORD") ?: ""
+                      keyAlias System.getenv("CM_KEY_ALIAS") ?: project.findProperty("FINDMEAI_KEY_ALIAS") ?: "findmeai"
+                      keyPassword System.getenv("CM_KEY_PASSWORD") ?: project.findProperty("FINDMEAI_KEY_PASSWORD") ?: ""
+                  }
+              }
+          '''
+          
+          # Find the android { block and insert signingConfigs before buildTypes
+          android_match = re.search(r'(android\s*\{)', content)
+          if android_match:
+              # Find buildTypes position
+              buildtypes_match = re.search(r'(\s*buildTypes\s*\{)', content)
+              if buildtypes_match:
+                  insert_pos = buildtypes_match.start()
+                  content = content[:insert_pos] + signing_config + '\n' + content[insert_pos:]
+                  print("✅ Added signingConfigs before buildTypes")
+          
+          # Now update the release buildType to use signingConfig release
+          # Find release { ... } within buildTypes
+          release_pattern = r'(buildTypes\s*\{[^}]*release\s*\{[^}]*)(minifyEnabled[^\n]*)'
+          
+          def add_signing_config(match):
+              prefix = match.group(1)
+              minify_line = match.group(2)
+              if 'signingConfig' not in prefix:
+                  return prefix + minify_line + '\n            signingConfig signingConfigs.release'
+              return match.group(0)
+          
+          content = re.sub(release_pattern, add_signing_config, content, flags=re.DOTALL)
+          
+          # Alternative: directly find and modify release block
+          if 'signingConfig signingConfigs.release' not in content:
+              # Find the release block inside buildTypes and add signingConfig
+              pattern = r'(release\s*\{[^}]*?)(minifyEnabled\s+\w+)'
+              replacement = r'\1\2\n            signingConfig signingConfigs.release'
+              content = re.sub(pattern, replacement, content)
+              print("✅ Added signingConfig to release buildType")
+          
+          with open(build_gradle_path, 'w') as f:
+              f.write(content)
+          
+          print("✅ build.gradle updated successfully")
+          PYTHON_SCRIPT
+          
+          python3 /tmp/configure_signing.py
+          
+          echo ""
+          echo "=== Updated build.gradle (relevant sections) ==="
+          grep -A 15 "signingConfigs" build.gradle || echo "Checking alternative..."
+          grep -A 8 "release {" build.gradle | head -20
+
+      - name: Set Environment Variables for Signing
+        script: |
+          # Export signing credentials as environment variables
+          export CM_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
+          export CM_KEY_ALIAS="$CM_KEY_ALIAS"
+          export CM_KEY_PASSWORD="$CM_KEY_PASSWORD"
+          
+          echo "✅ Signing environment variables set"
+          echo "Key Alias: $CM_KEY_ALIAS"
 
       - name: Build Release AAB
         script: |
           cd frontend/android
           chmod +x gradlew
-          ./gradlew bundleRelease
+          
+          # Set signing env vars for Gradle
+          export CM_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
+          export CM_KEY_ALIAS="$CM_KEY_ALIAS"  
+          export CM_KEY_PASSWORD="$CM_KEY_PASSWORD"
+          
+          echo "🔨 Starting Release AAB build..."
+          ./gradlew bundleRelease --stacktrace
+          
+          echo ""
+          echo "=== ✅ Build Complete ==="
+          
+          AAB_FILE=$(find . -name "*.aab" -type f | head -1)
+          if [ -n "$AAB_FILE" ]; then
+            echo "📦 AAB Location: $AAB_FILE"
+            echo "📊 AAB Size: $(ls -lh $AAB_FILE | awk '{print $5}')"
+          else
+            echo "❌ ERROR: No AAB file found!"
+            find . -name "*.aab" -o -name "*.apk" 2>/dev/null
+            exit 1
+          fi
+
+      - name: Display Build Info
+        script: |
+          echo "=========================================="
+          echo "         BUILD SUMMARY"
+          echo "=========================================="
+          echo ""
+          echo "📱 App: Find Me AI"
+          echo "📦 Package: com.findmeai.app"
+          echo "🔢 Version: 1.0.0"
+          echo "🔢 Version Code: 1"
+          echo ""
+          echo "📁 Artifacts:"
+          find frontend/android -name "*.aab" -type f -exec ls -lh {} \;
+          echo ""
+          echo "🔐 Mapping file:"
+          find frontend/android -name "mapping.txt" -type f -exec ls -lh {} \; || echo "No mapping.txt (ProGuard may be disabled)"
+          echo ""
+          echo "=========================================="
 
     artifacts:
       - frontend/android/app/build/outputs/bundle/release/*.aab
-      - frontend/android/app/build/outputs/apk/release/*.apk
+      - frontend/android/app/build/outputs/mapping/release/mapping.txt
     
     publishing:
       email:
@@ -49,22 +186,23 @@ workflows:
           success: true
           failure: true
 
-  android-debug:
-    name: Android Debug APK
+  android_debug_apk:
+    name: Android Debug APK (Testing)
     max_build_duration: 45
     instance_type: linux_x2
     environment:
       java: 17
       node: 18
       vars:
-        EXPO_PUBLIC_BACKEND_URL: "https://ai-alter.preview.emergentagent.com"
+        EXPO_PUBLIC_BACKEND_URL: "https://alter-ego-app-1.preview.emergentagent.com"
+    
     scripts:
       - name: Install dependencies
         script: |
           cd frontend
-          npm install
+          yarn install
 
-      - name: Setup Expo
+      - name: Expo Prebuild
         script: |
           cd frontend
           npx expo prebuild --platform android --clean
@@ -73,7 +211,18 @@ workflows:
         script: |
           cd frontend/android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug
+          
+          echo "✅ Debug APK built:"
+          find . -name "*.apk" -type f -exec ls -lh {} \;
 
     artifacts:
-      - frontend/android/app/build/outputs/apk/**/*.apk
+      - frontend/android/app/build/outputs/apk/debug/*.apk
+    
+    publishing:
+      email:
+        recipients:
+          - hakan.dalmis13@gmail.com
+        notify:
+          success: true
+          failure: true
