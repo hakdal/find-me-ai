@@ -1,45 +1,133 @@
 workflows:
-  android-release:
-    name: Android Release AAB
+  android_release_aab:
+    name: Android Release AAB (Play Store)
     max_build_duration: 60
     instance_type: linux_x2
     environment:
       java: 17
       node: 18
       groups:
-        - android_credentials
+        - android-signing
       vars:
         EXPO_PUBLIC_BACKEND_URL: "https://alter-ego-app-1.preview.emergentagent.com"
+    
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    
     scripts:
       - name: Install dependencies
         script: |
           cd frontend
-          npm install
+          yarn install
 
-      - name: Setup Expo
+      - name: Expo Prebuild (Generate Android Project)
         script: |
           cd frontend
           npx expo prebuild --platform android --clean
 
-      - name: Set up keystore
+      - name: Decode Keystore
         script: |
-          echo $CM_KEYSTORE | base64 --decode > $CM_BUILD_DIR/frontend/android/app/keystore.jks
-          cat >> $CM_BUILD_DIR/frontend/android/gradle.properties <<EOF
-          MYAPP_UPLOAD_STORE_FILE=keystore.jks
-          MYAPP_UPLOAD_KEY_ALIAS=$CM_KEY_ALIAS
-          MYAPP_UPLOAD_STORE_PASSWORD=$CM_KEYSTORE_PASSWORD
-          MYAPP_UPLOAD_KEY_PASSWORD=$CM_KEY_PASSWORD
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
+          echo "Keystore decoded to /tmp/keystore.jks"
+          ls -la /tmp/keystore.jks
+
+      - name: Configure Signing in gradle.properties
+        script: |
+          cd frontend/android
+          
+          # Add signing properties to gradle.properties
+          cat >> gradle.properties <<EOF
+          
+          # Release signing configuration
+          FINDMEAI_UPLOAD_STORE_FILE=/tmp/keystore.jks
+          FINDMEAI_UPLOAD_KEY_ALIAS=$CM_KEY_ALIAS
+          FINDMEAI_UPLOAD_STORE_PASSWORD=$CM_KEYSTORE_PASSWORD
+          FINDMEAI_UPLOAD_KEY_PASSWORD=$CM_KEY_PASSWORD
           EOF
+          
+          echo "gradle.properties updated:"
+          cat gradle.properties
+
+      - name: Configure Signing in build.gradle
+        script: |
+          cd frontend/android/app
+          
+          # Backup original build.gradle
+          cp build.gradle build.gradle.backup
+          
+          # Add signingConfigs block before buildTypes
+          sed -i '/buildTypes {/i \
+              signingConfigs {\
+                  release {\
+                      storeFile file(FINDMEAI_UPLOAD_STORE_FILE)\
+                      storePassword FINDMEAI_UPLOAD_STORE_PASSWORD\
+                      keyAlias FINDMEAI_UPLOAD_KEY_ALIAS\
+                      keyPassword FINDMEAI_UPLOAD_KEY_PASSWORD\
+                  }\
+              }\
+          ' build.gradle
+          
+          # Update release buildType to use signingConfig
+          sed -i '/buildTypes {/,/}/ {
+            /release {/,/}/ {
+              /signingConfig/d
+              /minifyEnabled/a \            signingConfig signingConfigs.release
+            }
+          }' build.gradle
+          
+          echo "build.gradle signing configured"
+
+      - name: Verify Signing Configuration
+        script: |
+          cd frontend/android/app
+          echo "=== Checking build.gradle for signingConfigs ==="
+          grep -A 10 "signingConfigs" build.gradle || echo "signingConfigs not found, using alternative method"
+          echo ""
+          echo "=== Checking for release signingConfig ==="
+          grep -A 5 "release {" build.gradle | head -20
 
       - name: Build Release AAB
         script: |
           cd frontend/android
           chmod +x gradlew
-          ./gradlew bundleRelease
+          
+          echo "Starting AAB build..."
+          ./gradlew bundleRelease --stacktrace
+          
+          echo ""
+          echo "=== Build Complete ==="
+          echo "AAB Location:"
+          find . -name "*.aab" -type f 2>/dev/null
+          
+          echo ""
+          echo "=== Version Info ==="
+          grep "versionCode" ../app.json || true
+          grep "versionName" ../app.json || true
+
+      - name: Verify AAB Signature
+        script: |
+          AAB_PATH=$(find frontend/android -name "*.aab" -type f | head -1)
+          if [ -n "$AAB_PATH" ]; then
+            echo "AAB found at: $AAB_PATH"
+            echo "AAB size: $(ls -lh $AAB_PATH | awk '{print $5}')"
+            
+            # Check if signed
+            if command -v jarsigner &> /dev/null; then
+              jarsigner -verify -verbose -certs "$AAB_PATH" 2>&1 | head -20 || echo "jarsigner check complete"
+            fi
+          else
+            echo "ERROR: No AAB file found!"
+            exit 1
+          fi
 
     artifacts:
       - frontend/android/app/build/outputs/bundle/release/*.aab
-      - frontend/android/app/build/outputs/apk/release/*.apk
+      - frontend/android/app/build/outputs/mapping/release/mapping.txt
     
     publishing:
       email:
@@ -49,8 +137,8 @@ workflows:
           success: true
           failure: true
 
-  android-debug:
-    name: Android Debug APK
+  android_debug_apk:
+    name: Android Debug APK (Testing)
     max_build_duration: 45
     instance_type: linux_x2
     environment:
@@ -58,13 +146,14 @@ workflows:
       node: 18
       vars:
         EXPO_PUBLIC_BACKEND_URL: "https://alter-ego-app-1.preview.emergentagent.com"
+    
     scripts:
       - name: Install dependencies
         script: |
           cd frontend
-          npm install
+          yarn install
 
-      - name: Setup Expo
+      - name: Expo Prebuild
         script: |
           cd frontend
           npx expo prebuild --platform android --clean
@@ -73,7 +162,15 @@ workflows:
         script: |
           cd frontend/android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleDebug
 
     artifacts:
-      - frontend/android/app/build/outputs/apk/**/*.apk
+      - frontend/android/app/build/outputs/apk/debug/*.apk
+    
+    publishing:
+      email:
+        recipients:
+          - hakan.dalmis13@gmail.com
+        notify:
+          success: true
+          failure: true
