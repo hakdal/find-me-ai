@@ -32,98 +32,147 @@ workflows:
 
       - name: Decode Keystore
         script: |
-          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
-          echo "Keystore decoded to /tmp/keystore.jks"
-          ls -la /tmp/keystore.jks
+          # Decode keystore to a known location
+          KEYSTORE_PATH="$CM_BUILD_DIR/frontend/android/app/release-keystore.jks"
+          echo $CM_KEYSTORE | base64 --decode > "$KEYSTORE_PATH"
+          echo "✅ Keystore decoded to: $KEYSTORE_PATH"
+          ls -la "$KEYSTORE_PATH"
 
-      - name: Configure Signing in gradle.properties
-        script: |
-          cd frontend/android
-          
-          # Add signing properties to gradle.properties
-          cat >> gradle.properties <<EOF
-          
-          # Release signing configuration
-          FINDMEAI_UPLOAD_STORE_FILE=/tmp/keystore.jks
-          FINDMEAI_UPLOAD_KEY_ALIAS=$CM_KEY_ALIAS
-          FINDMEAI_UPLOAD_STORE_PASSWORD=$CM_KEYSTORE_PASSWORD
-          FINDMEAI_UPLOAD_KEY_PASSWORD=$CM_KEY_PASSWORD
-          EOF
-          
-          echo "gradle.properties updated:"
-          cat gradle.properties
-
-      - name: Configure Signing in build.gradle
+      - name: Configure Release Signing
         script: |
           cd frontend/android/app
           
-          # Backup original build.gradle
-          cp build.gradle build.gradle.backup
+          # Create the signingConfigs and update build.gradle
+          # First, let's check what build.gradle looks like
+          echo "=== Original build.gradle structure ==="
+          head -100 build.gradle
           
-          # Add signingConfigs block before buildTypes
-          sed -i '/buildTypes {/i \
-              signingConfigs {\
-                  release {\
-                      storeFile file(FINDMEAI_UPLOAD_STORE_FILE)\
-                      storePassword FINDMEAI_UPLOAD_STORE_PASSWORD\
-                      keyAlias FINDMEAI_UPLOAD_KEY_ALIAS\
-                      keyPassword FINDMEAI_UPLOAD_KEY_PASSWORD\
-                  }\
-              }\
-          ' build.gradle
+          # Create a Python script to properly modify build.gradle
+          cat > /tmp/configure_signing.py << 'PYTHON_SCRIPT'
+          import re
+          import os
           
-          # Update release buildType to use signingConfig
-          sed -i '/buildTypes {/,/}/ {
-            /release {/,/}/ {
-              /signingConfig/d
-              /minifyEnabled/a \            signingConfig signingConfigs.release
-            }
-          }' build.gradle
+          build_gradle_path = "build.gradle"
           
-          echo "build.gradle signing configured"
-
-      - name: Verify Signing Configuration
-        script: |
-          cd frontend/android/app
-          echo "=== Checking build.gradle for signingConfigs ==="
-          grep -A 10 "signingConfigs" build.gradle || echo "signingConfigs not found, using alternative method"
+          with open(build_gradle_path, 'r') as f:
+              content = f.read()
+          
+          # Check if signingConfigs already exists
+          if 'signingConfigs' in content:
+              print("signingConfigs already exists, updating...")
+              # Remove existing signingConfigs block
+              content = re.sub(r'signingConfigs\s*\{[^}]*release\s*\{[^}]*\}[^}]*\}', '', content, flags=re.DOTALL)
+          
+          # Signing config to add
+          signing_config = '''
+              signingConfigs {
+                  release {
+                      storeFile file("release-keystore.jks")
+                      storePassword System.getenv("CM_KEYSTORE_PASSWORD") ?: project.findProperty("FINDMEAI_STORE_PASSWORD") ?: ""
+                      keyAlias System.getenv("CM_KEY_ALIAS") ?: project.findProperty("FINDMEAI_KEY_ALIAS") ?: "findmeai"
+                      keyPassword System.getenv("CM_KEY_PASSWORD") ?: project.findProperty("FINDMEAI_KEY_PASSWORD") ?: ""
+                  }
+              }
+          '''
+          
+          # Find the android { block and insert signingConfigs before buildTypes
+          android_match = re.search(r'(android\s*\{)', content)
+          if android_match:
+              # Find buildTypes position
+              buildtypes_match = re.search(r'(\s*buildTypes\s*\{)', content)
+              if buildtypes_match:
+                  insert_pos = buildtypes_match.start()
+                  content = content[:insert_pos] + signing_config + '\n' + content[insert_pos:]
+                  print("✅ Added signingConfigs before buildTypes")
+          
+          # Now update the release buildType to use signingConfig release
+          # Find release { ... } within buildTypes
+          release_pattern = r'(buildTypes\s*\{[^}]*release\s*\{[^}]*)(minifyEnabled[^\n]*)'
+          
+          def add_signing_config(match):
+              prefix = match.group(1)
+              minify_line = match.group(2)
+              if 'signingConfig' not in prefix:
+                  return prefix + minify_line + '\n            signingConfig signingConfigs.release'
+              return match.group(0)
+          
+          content = re.sub(release_pattern, add_signing_config, content, flags=re.DOTALL)
+          
+          # Alternative: directly find and modify release block
+          if 'signingConfig signingConfigs.release' not in content:
+              # Find the release block inside buildTypes and add signingConfig
+              pattern = r'(release\s*\{[^}]*?)(minifyEnabled\s+\w+)'
+              replacement = r'\1\2\n            signingConfig signingConfigs.release'
+              content = re.sub(pattern, replacement, content)
+              print("✅ Added signingConfig to release buildType")
+          
+          with open(build_gradle_path, 'w') as f:
+              f.write(content)
+          
+          print("✅ build.gradle updated successfully")
+          PYTHON_SCRIPT
+          
+          python3 /tmp/configure_signing.py
+          
           echo ""
-          echo "=== Checking for release signingConfig ==="
-          grep -A 5 "release {" build.gradle | head -20
+          echo "=== Updated build.gradle (relevant sections) ==="
+          grep -A 15 "signingConfigs" build.gradle || echo "Checking alternative..."
+          grep -A 8 "release {" build.gradle | head -20
+
+      - name: Set Environment Variables for Signing
+        script: |
+          # Export signing credentials as environment variables
+          export CM_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
+          export CM_KEY_ALIAS="$CM_KEY_ALIAS"
+          export CM_KEY_PASSWORD="$CM_KEY_PASSWORD"
+          
+          echo "✅ Signing environment variables set"
+          echo "Key Alias: $CM_KEY_ALIAS"
 
       - name: Build Release AAB
         script: |
           cd frontend/android
           chmod +x gradlew
           
-          echo "Starting AAB build..."
+          # Set signing env vars for Gradle
+          export CM_KEYSTORE_PASSWORD="$CM_KEYSTORE_PASSWORD"
+          export CM_KEY_ALIAS="$CM_KEY_ALIAS"  
+          export CM_KEY_PASSWORD="$CM_KEY_PASSWORD"
+          
+          echo "🔨 Starting Release AAB build..."
           ./gradlew bundleRelease --stacktrace
           
           echo ""
-          echo "=== Build Complete ==="
-          echo "AAB Location:"
-          find . -name "*.aab" -type f 2>/dev/null
+          echo "=== ✅ Build Complete ==="
           
-          echo ""
-          echo "=== Version Info ==="
-          grep "versionCode" ../app.json || true
-          grep "versionName" ../app.json || true
-
-      - name: Verify AAB Signature
-        script: |
-          AAB_PATH=$(find frontend/android -name "*.aab" -type f | head -1)
-          if [ -n "$AAB_PATH" ]; then
-            echo "AAB found at: $AAB_PATH"
-            echo "AAB size: $(ls -lh $AAB_PATH | awk '{print $5}')"
-            
-            # Check if signed
-            if command -v jarsigner &> /dev/null; then
-              jarsigner -verify -verbose -certs "$AAB_PATH" 2>&1 | head -20 || echo "jarsigner check complete"
-            fi
+          AAB_FILE=$(find . -name "*.aab" -type f | head -1)
+          if [ -n "$AAB_FILE" ]; then
+            echo "📦 AAB Location: $AAB_FILE"
+            echo "📊 AAB Size: $(ls -lh $AAB_FILE | awk '{print $5}')"
           else
-            echo "ERROR: No AAB file found!"
+            echo "❌ ERROR: No AAB file found!"
+            find . -name "*.aab" -o -name "*.apk" 2>/dev/null
             exit 1
           fi
+
+      - name: Display Build Info
+        script: |
+          echo "=========================================="
+          echo "         BUILD SUMMARY"
+          echo "=========================================="
+          echo ""
+          echo "📱 App: Find Me AI"
+          echo "📦 Package: com.findmeai.app"
+          echo "🔢 Version: 1.0.0"
+          echo "🔢 Version Code: 1"
+          echo ""
+          echo "📁 Artifacts:"
+          find frontend/android -name "*.aab" -type f -exec ls -lh {} \;
+          echo ""
+          echo "🔐 Mapping file:"
+          find frontend/android -name "mapping.txt" -type f -exec ls -lh {} \; || echo "No mapping.txt (ProGuard may be disabled)"
+          echo ""
+          echo "=========================================="
 
     artifacts:
       - frontend/android/app/build/outputs/bundle/release/*.aab
@@ -163,6 +212,9 @@ workflows:
           cd frontend/android
           chmod +x gradlew
           ./gradlew assembleDebug
+          
+          echo "✅ Debug APK built:"
+          find . -name "*.apk" -type f -exec ls -lh {} \;
 
     artifacts:
       - frontend/android/app/build/outputs/apk/debug/*.apk
