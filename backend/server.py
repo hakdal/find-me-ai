@@ -122,6 +122,58 @@ class PricingConfig(BaseModel):
     persona_all_try: float = 299.0
     persona_unlimited_try: float = 149.0
 
+# ===== MONETIZATION MODELS =====
+class UserPlan(BaseModel):
+    user_id: str
+    plan: str = 'free'  # 'free', 'pro_monthly', 'pro_yearly'
+    credits: int = 0
+    daily_generations: int = 0
+    daily_reset_date: str = ''  # ISO date string
+    total_generations: int = 0
+    subscription_expires: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class CreditPackage(BaseModel):
+    id: str
+    name: str
+    credits: int
+    price_usd: float
+    price_try: float
+
+class SubscriptionPlan(BaseModel):
+    id: str
+    name: str
+    price_usd: float
+    price_try: float
+    daily_limit: int  # -1 = unlimited
+    features: List[str]
+
+# Pricing Configuration
+FREE_DAILY_LIMIT = 3
+CREDIT_PACKAGES = [
+    CreditPackage(id='credits_5', name='5 Kredi', credits=5, price_usd=2.99, price_try=99),
+    CreditPackage(id='credits_15', name='15 Kredi', credits=15, price_usd=6.99, price_try=229),
+    CreditPackage(id='credits_50', name='50 Kredi', credits=50, price_usd=19.99, price_try=699),
+]
+SUBSCRIPTION_PLANS = [
+    SubscriptionPlan(
+        id='pro_monthly', 
+        name='PRO Aylık', 
+        price_usd=4.99, 
+        price_try=149.99,
+        daily_limit=-1,  # Unlimited
+        features=['Limitsiz persona', 'Premium stiller', 'Öncelikli üretim', 'Reklamsız']
+    ),
+    SubscriptionPlan(
+        id='pro_yearly', 
+        name='PRO Yıllık', 
+        price_usd=39.99, 
+        price_try=1199.99,
+        daily_limit=-1,
+        features=['Limitsiz persona', 'Premium stiller', 'Öncelikli üretim', 'Reklamsız', '2 ay bedava']
+    ),
+]
+
 # Gender-aware persona themes with female and male variants
 PERSONA_THEMES = {
     "Midnight CEO": {
