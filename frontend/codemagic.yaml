@@ -217,12 +217,14 @@ workflows:
           find . -name "*.apk" -type f -exec ls -lh {} \;
           
           echo ""
-          echo "📁 All APK locations:"
-          find $CM_BUILD_DIR -name "*.apk" -type f 2>/dev/null
+          echo "📁 Copying APK to build root..."
+          mkdir -p $CM_BUILD_DIR/build-output
+          find . -name "*.apk" -type f -exec cp {} $CM_BUILD_DIR/build-output/ \;
+          ls -la $CM_BUILD_DIR/build-output/
 
     artifacts:
-      - frontend/android/app/build/outputs/apk/**/*.apk
-      - "**/outputs/apk/**/*.apk"
+      - build-output/*.apk
+      - frontend/android/app/build/outputs/apk/debug/app-debug.apk
     
     publishing:
       email:
