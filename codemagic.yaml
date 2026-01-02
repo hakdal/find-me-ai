@@ -39,6 +39,7 @@ workflows:
 
       - name: Build Release AAB (Injected Signing)
         script: |
+          set -euo pipefail
           cd frontend/android
           chmod +x gradlew
 
@@ -51,8 +52,6 @@ workflows:
 
           echo ""
           echo "=== ✅ Build Complete ==="
-          find app/build/outputs -type f \( -name "*.aab" -o -name "*.apk" \) -print -maxdepth 6 || true
-
           AAB_FILE=$(find app/build/outputs -name "*.aab" -type f | head -1)
           if [ -n "$AAB_FILE" ]; then
             echo "📦 AAB Location: $AAB_FILE"
@@ -97,12 +96,20 @@ workflows:
 
       - name: Build Debug APK
         script: |
+          set -euo pipefail
           cd frontend/android
           chmod +x gradlew
           ./gradlew :app:assembleDebug --stacktrace
 
           echo "✅ Debug APK built!"
-          find app/build/outputs/apk/debug -name "*.apk" -type f -exec ls -lh {} \;
+          APK_FILE=$(find app/build/outputs/apk/debug -name "*.apk" -type f | head -1)
+          if [ -n "$APK_FILE" ]; then
+            echo "📦 APK Location: $APK_FILE"
+            ls -lh "$APK_FILE"
+          else
+            echo "❌ ERROR: No APK file found!"
+            exit 1
+          fi
 
     artifacts:
       - frontend/android/app/build/outputs/apk/debug/*.apk
