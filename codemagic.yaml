@@ -215,13 +215,18 @@ workflows:
           
           echo "✅ Debug APK built!"
           echo ""
-          echo "📁 APK Files found:"
-          find . -name "*.apk" -type f -exec ls -lh {} \;
+          echo "📁 Looking for APK files..."
+          find $CM_BUILD_DIR -name "*.apk" -type f 2>/dev/null
+          
+          echo ""
+          echo "📦 Copying APK to root..."
+          find $CM_BUILD_DIR -name "*.apk" -type f -exec cp {} $CM_BUILD_DIR/ \; 2>/dev/null || true
+          ls -la $CM_BUILD_DIR/*.apk 2>/dev/null || echo "No APK in root"
 
     artifacts:
-      - frontend/android/app/build/**/outputs/**/*.apk
-      - frontend/android/**/outputs/**/*.apk
-      - "**/outputs/**/*.apk"
+      - "*.apk"
+      - "**/*.apk"
+      - frontend/android/app/build/outputs/apk/debug/app-debug.apk
     
     publishing:
       email:
