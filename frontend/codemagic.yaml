@@ -213,18 +213,24 @@ workflows:
           chmod +x gradlew
           ./gradlew assembleDebug
           
-          echo "✅ Debug APK built:"
+          echo "✅ Debug APK built!"
+          echo ""
+          echo "📁 APK Files found:"
           find . -name "*.apk" -type f -exec ls -lh {} \;
           
           echo ""
-          echo "📁 Copying APK to build root..."
-          mkdir -p $CM_BUILD_DIR/build-output
-          find . -name "*.apk" -type f -exec cp {} $CM_BUILD_DIR/build-output/ \;
-          ls -la $CM_BUILD_DIR/build-output/
+          echo "📦 Copying APK to artifacts folder..."
+          mkdir -p $CM_BUILD_DIR/artifacts
+          cp ./app/build/outputs/apk/debug/app-debug.apk $CM_BUILD_DIR/artifacts/ || true
+          find . -name "*.apk" -exec cp {} $CM_BUILD_DIR/artifacts/ \; 2>/dev/null || true
+          
+          echo ""
+          echo "📁 Artifacts folder contents:"
+          ls -la $CM_BUILD_DIR/artifacts/
 
     artifacts:
-      - build-output/*.apk
-      - frontend/android/app/build/outputs/apk/debug/app-debug.apk
+      - artifacts/*
+      - artifacts/*.apk
     
     publishing:
       email:
