@@ -39,11 +39,25 @@ jobs:
           cd frontend
           npx expo prebuild --platform android --clean
 
+      - name: Configure Gradle for CI
+        run: |
+          mkdir -p frontend/android
+          cat >> frontend/android/gradle.properties << 'EOF'
+          
+          # CI Memory optimization
+          org.gradle.jvmargs=-Xmx4g -XX:+HeapDumpOnOutOfMemoryError -XX:MaxMetaspaceSize=512m
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.configureondemand=true
+          kotlin.daemon.jvmargs=-Xmx2g
+          kotlin.incremental=false
+          EOF
+
       - name: Build Debug APK
         run: |
           cd frontend/android
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -83,6 +97,20 @@ jobs:
           cd frontend
           npx expo prebuild --platform android --clean
 
+      - name: Configure Gradle for CI
+        run: |
+          mkdir -p frontend/android
+          cat >> frontend/android/gradle.properties << 'EOF'
+          
+          # CI Memory optimization
+          org.gradle.jvmargs=-Xmx4g -XX:+HeapDumpOnOutOfMemoryError -XX:MaxMetaspaceSize=512m
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.configureondemand=true
+          kotlin.daemon.jvmargs=-Xmx2g
+          kotlin.incremental=false
+          EOF
+
       - name: Decode Keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -98,7 +126,7 @@ jobs:
         run: |
           cd frontend/android
           chmod +x gradlew
-          ./gradlew :app:bundleRelease --stacktrace \
+          ./gradlew :app:bundleRelease --no-daemon --stacktrace \
             -Pandroid.injected.signing.store.file="${{ github.workspace }}/frontend/android/app/release-keystore.jks" \
             -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
