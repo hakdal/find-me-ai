@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:  # Manuel tetikleme
+  workflow_dispatch:
 
 jobs:
   build-debug-apk:
@@ -88,6 +88,7 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > frontend/android/app/release-keystore.jks
+          ls -la frontend/android/app/release-keystore.jks
 
       - name: Build Release AAB
         env:
@@ -109,53 +110,11 @@ jobs:
           name: release-aab
           path: frontend/android/app/build/outputs/bundle/release/*.aab
           retention-days: 30
-🔐 GitHub Secrets Ayarla (Bir Kerelik):
-GitHub'da repo → Settings → Secrets and variables → Actions
-New repository secret tıkla
-Şu 4 secret'ı ekle:
-Secret Name	Değer
-KEYSTORE_BASE64	Keystore dosyasının base64 hali*
-KEYSTORE_PASSWORD	Keystore şifresi
-KEY_ALIAS	findmeai
-KEY_PASSWORD	Key şifresi
-Keystore'u base64'e çevirmek için (Windows PowerShell):
 
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("findmeai-release.keystore"))
-Veya Mac/Linux:
-
-base64 -i findmeai-release.keystore
-📁 Repo'ya Ekle:
-Repo'da .github/workflows/ klasörü oluştur
-İçine android-build.yml dosyasını koy
-Commit & Push
-🚀 Nasıl Kullanılır:
-Otomatik: main branch'e push yapınca otomatik çalışır
-Manuel: GitHub → Actions → Android Build → Run workflow
-📥 APK/AAB Nasıl İndirilir:
-GitHub → Actions sekmesi
-Çalışan/biten workflow'a tıkla
-Sayfanın altında Artifacts bölümünde:
-debug-apk
-release-aab
-Tıkla ve indir! 🎉
-Bu yöntem Codemagic'ten daha basit ve ücretsiz! (GitHub Actions free tier yeterli)
-
-Jan 3, 06:03 PM
-
-Copy
-Agent is waiting...
-Message Agent
-Attach
-GitHub
-Save to GitHub
-Fork
-Summarize
-
-Ultra
-
-
-
-send
-Deploy
-Deployments
-
+      - name: Upload Mapping File
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-file
+          path: frontend/android/app/build/outputs/mapping/release/mapping.txt
+          retention-days: 30
+          if-no-files-found: ignore
