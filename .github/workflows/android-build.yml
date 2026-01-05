@@ -41,8 +41,7 @@ jobs:
 
       - name: Patch MainApplication.kt
         run: |
-          cat > frontend/android/app/src/main/java/com/findmeai/app/MainApplication.kt << 'ENDOFFILE'
-          package com.findmeai.app
+          echo 'package com.findmeai.app
 
           import android.app.Application
           import com.facebook.react.PackageList
@@ -80,15 +79,14 @@ jobs:
                       load()
                   }
               }
-          }
-          ENDOFFILE
+          }' > frontend/android/app/src/main/java/com/findmeai/app/MainApplication.kt
           echo "✅ MainApplication.kt patched"
+          cat frontend/android/app/src/main/java/com/findmeai/app/MainApplication.kt
 
       - name: Configure Gradle for CI
         run: |
           cat >> frontend/android/gradle.properties << 'EOF'
           
-          # CI Memory optimization
           org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m
           org.gradle.daemon=false
           org.gradle.parallel=false
@@ -142,8 +140,7 @@ jobs:
 
       - name: Patch MainApplication.kt
         run: |
-          cat > frontend/android/app/src/main/java/com/findmeai/app/MainApplication.kt << 'ENDOFFILE'
-          package com.findmeai.app
+          echo 'package com.findmeai.app
 
           import android.app.Application
           import com.facebook.react.PackageList
@@ -181,15 +178,13 @@ jobs:
                       load()
                   }
               }
-          }
-          ENDOFFILE
+          }' > frontend/android/app/src/main/java/com/findmeai/app/MainApplication.kt
           echo "✅ MainApplication.kt patched"
 
       - name: Configure Gradle for CI
         run: |
           cat >> frontend/android/gradle.properties << 'EOF'
           
-          # CI Memory optimization
           org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m
           org.gradle.daemon=false
           org.gradle.parallel=false
@@ -202,7 +197,6 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > frontend/android/app/release-keystore.jks
-          ls -la frontend/android/app/release-keystore.jks
 
       - name: Build Release AAB
         env:
@@ -224,11 +218,3 @@ jobs:
           name: release-aab
           path: frontend/android/app/build/outputs/bundle/release/*.aab
           retention-days: 30
-
-      - name: Upload Mapping File
-        uses: actions/upload-artifact@v4
-        with:
-          name: mapping-file
-          path: frontend/android/app/build/outputs/mapping/release/mapping.txt
-          retention-days: 30
-          if-no-files-found: ignore
