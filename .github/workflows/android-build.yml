@@ -43,8 +43,43 @@ jobs:
       - name: Disable New Architecture
         run: |
           echo "newArchEnabled=false" >> frontend/android/gradle.properties
-          echo "✅ New Architecture disabled"
-          cat frontend/android/gradle.properties
+          echo "✅ New Architecture disabled in gradle.properties"
+
+      - name: Patch MainApplication.kt for Old Architecture
+        run: |
+          cat > frontend/android/app/src/main/java/com/findmeai/app/MainApplication.kt << 'EOF'
+          package com.findmeai.app
+
+          import android.app.Application
+          import com.facebook.react.PackageList
+          import com.facebook.react.ReactApplication
+          import com.facebook.react.ReactNativeHost
+          import com.facebook.react.ReactPackage
+          import com.facebook.react.defaults.DefaultReactNativeHost
+          import com.facebook.soloader.SoLoader
+
+          class MainApplication : Application(), ReactApplication {
+
+              override val reactNativeHost: ReactNativeHost =
+                  object : DefaultReactNativeHost(this) {
+                      override fun getPackages(): List<ReactPackage> =
+                          PackageList(this).packages
+
+                      override fun getJSMainModuleName(): String = "index"
+
+                      override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
+
+                      override val isNewArchEnabled: Boolean = false
+                      override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
+                  }
+
+              override fun onCreate() {
+                  super.onCreate()
+                  SoLoader.init(this, false)
+              }
+          }
+          EOF
+          echo "✅ MainApplication.kt patched for Old Architecture"
 
       - name: Configure Gradle for CI
         run: |
@@ -105,7 +140,43 @@ jobs:
       - name: Disable New Architecture
         run: |
           echo "newArchEnabled=false" >> frontend/android/gradle.properties
-          echo "✅ New Architecture disabled"
+          echo "✅ New Architecture disabled in gradle.properties"
+
+      - name: Patch MainApplication.kt for Old Architecture
+        run: |
+          cat > frontend/android/app/src/main/java/com/findmeai/app/MainApplication.kt << 'EOF'
+          package com.findmeai.app
+
+          import android.app.Application
+          import com.facebook.react.PackageList
+          import com.facebook.react.ReactApplication
+          import com.facebook.react.ReactNativeHost
+          import com.facebook.react.ReactPackage
+          import com.facebook.react.defaults.DefaultReactNativeHost
+          import com.facebook.soloader.SoLoader
+
+          class MainApplication : Application(), ReactApplication {
+
+              override val reactNativeHost: ReactNativeHost =
+                  object : DefaultReactNativeHost(this) {
+                      override fun getPackages(): List<ReactPackage> =
+                          PackageList(this).packages
+
+                      override fun getJSMainModuleName(): String = "index"
+
+                      override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
+
+                      override val isNewArchEnabled: Boolean = false
+                      override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
+                  }
+
+              override fun onCreate() {
+                  super.onCreate()
+                  SoLoader.init(this, false)
+              }
+          }
+          EOF
+          echo "✅ MainApplication.kt patched for Old Architecture"
 
       - name: Configure Gradle for CI
         run: |
